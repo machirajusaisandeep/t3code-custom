@@ -30,6 +30,10 @@ export interface DesktopSettings {
   // Null until the renderer has reported one.
   readonly chromeBackgroundColor: string | null;
   readonly linuxPasswordStore: LinuxPasswordStorePreference;
+  // "Locked use": may the desktop hold an OS power assertion so a turn in
+  // flight survives the screen locking or the machine going idle. Off by
+  // default — opting a machine out of sleep is the user's call, not ours.
+  readonly lockedUseEnabled: boolean;
   readonly mainWindowBounds: DesktopWindowBounds | null;
   readonly mainWindowMaximized: boolean;
   readonly serverExposureMode: DesktopServerExposureMode;
@@ -79,6 +83,7 @@ export const DEFAULT_MAIN_WINDOW_SIZE = {
 export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   chromeBackgroundColor: null,
   linuxPasswordStore: DEFAULT_LINUX_PASSWORD_STORE,
+  lockedUseEnabled: false,
   mainWindowBounds: null,
   mainWindowMaximized: false,
   serverExposureMode: "local-only",
@@ -101,6 +106,7 @@ const DesktopWindowBoundsDocument = Schema.Struct({
 const DesktopSettingsDocument = Schema.Struct({
   chromeBackgroundColor: Schema.optionalKey(Schema.NullOr(Schema.String)),
   linuxPasswordStore: Schema.optionalKey(Schema.Unknown),
+  lockedUseEnabled: Schema.optionalKey(Schema.Boolean),
   mainWindowBounds: Schema.optionalKey(Schema.NullOr(DesktopWindowBoundsDocument)),
   mainWindowMaximized: Schema.optionalKey(Schema.Boolean),
   serverExposureMode: Schema.optionalKey(DesktopServerExposureModeSchema),
@@ -164,6 +170,9 @@ export class DesktopAppSettings extends Context.Service<
     ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
     readonly setChromeBackgroundColor: (
       color: string,
+    ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
+    readonly setLockedUseEnabled: (
+      enabled: boolean,
     ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
     readonly setServerExposureMode: (
       mode: DesktopServerExposureMode,
@@ -250,6 +259,7 @@ function normalizeDesktopSettingsDocument(
   return {
     chromeBackgroundColor: normalizeChromeBackgroundColor(parsed.chromeBackgroundColor),
     linuxPasswordStore: normalizeLinuxPasswordStorePreference(parsed.linuxPasswordStore),
+    lockedUseEnabled: parsed.lockedUseEnabled === true,
     mainWindowBounds,
     mainWindowMaximized: mainWindowBounds !== null && parsed.mainWindowMaximized === true,
     serverExposureMode:
@@ -277,6 +287,9 @@ function toDesktopSettingsDocument(
   }
   if (settings.linuxPasswordStore !== defaults.linuxPasswordStore) {
     document.linuxPasswordStore = settings.linuxPasswordStore;
+  }
+  if (settings.lockedUseEnabled !== defaults.lockedUseEnabled) {
+    document.lockedUseEnabled = settings.lockedUseEnabled;
   }
   if (settings.mainWindowBounds !== null) {
     document.mainWindowBounds = settings.mainWindowBounds;
@@ -310,6 +323,15 @@ function toDesktopSettingsDocument(
   }
 
   return document;
+}
+
+function setLockedUseEnabled(settings: DesktopSettings, enabled: boolean): DesktopSettings {
+  return settings.lockedUseEnabled === enabled
+    ? settings
+    : {
+        ...settings,
+        lockedUseEnabled: enabled,
+      };
 }
 
 function setServerExposureMode(
@@ -560,6 +582,10 @@ export const make = Effect.gen(function* () {
       persist((settings) => setChromeBackgroundColor(settings, color)).pipe(
         Effect.withSpan("desktop.settings.setChromeBackgroundColor", { attributes: { color } }),
       ),
+    setLockedUseEnabled: (enabled) =>
+      persist((settings) => setLockedUseEnabled(settings, enabled)).pipe(
+        Effect.withSpan("desktop.settings.setLockedUseEnabled", { attributes: { enabled } }),
+      ),
     setServerExposureMode: (mode) =>
       persist((settings) => setServerExposureMode(settings, mode)).pipe(
         Effect.withSpan("desktop.settings.setServerExposureMode", { attributes: { mode } }),
@@ -621,6 +647,8 @@ export const layerTest = (initialSettings: DesktopSettings = DEFAULT_DESKTOP_SET
           update((settings) => setMainWindowBounds(settings, bounds, isMaximized)),
         setChromeBackgroundColor: (color) =>
           update((settings) => setChromeBackgroundColor(settings, color)),
+        setLockedUseEnabled: (enabled) =>
+          update((settings) => setLockedUseEnabled(settings, enabled)),
         setServerExposureMode: (mode) =>
           update((settings) => setServerExposureMode(settings, mode)),
         setTailscaleServe: (input) => update((settings) => setTailscaleServe(settings, input)),

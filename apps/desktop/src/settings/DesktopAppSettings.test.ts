@@ -14,6 +14,7 @@ const DesktopSettingsPatch = Schema.Struct({
   linuxPasswordStore: Schema.optionalKey(
     Schema.Literals(["auto", "gnome-libsecret", "kwallet", "kwallet5", "kwallet6"]),
   ),
+  lockedUseEnabled: Schema.optionalKey(Schema.Boolean),
   mainWindowBounds: Schema.optionalKey(
     Schema.NullOr(
       Schema.Struct({
@@ -107,6 +108,7 @@ describe("DesktopSettings", () => {
       {
         chromeBackgroundColor: null,
         linuxPasswordStore: "auto",
+        lockedUseEnabled: false,
         mainWindowBounds: null,
         mainWindowMaximized: false,
         serverExposureMode: "local-only",
@@ -127,6 +129,7 @@ describe("DesktopSettings", () => {
         const settings = yield* DesktopAppSettings.DesktopAppSettings;
         yield* writeSettingsPatch({
           linuxPasswordStore: "gnome-libsecret",
+          lockedUseEnabled: true,
           serverExposureMode: "network-accessible",
           tailscaleServeEnabled: true,
           tailscaleServePort: 8443,
@@ -137,6 +140,7 @@ describe("DesktopSettings", () => {
         assert.deepEqual(yield* settings.load, {
           chromeBackgroundColor: null,
           linuxPasswordStore: "gnome-libsecret",
+          lockedUseEnabled: true,
           mainWindowBounds: null,
           mainWindowMaximized: false,
           serverExposureMode: "network-accessible",
@@ -271,6 +275,7 @@ describe("DesktopSettings", () => {
         assert.deepEqual(yield* settings.load, {
           chromeBackgroundColor: null,
           linuxPasswordStore: "auto",
+          lockedUseEnabled: false,
           mainWindowBounds: { x: 120, y: 80, width: 1280, height: 900 },
           mainWindowMaximized: false,
           serverExposureMode: "network-accessible",
@@ -328,6 +333,7 @@ describe("DesktopSettings", () => {
           assert.deepEqual(yield* settings.load, {
             chromeBackgroundColor: null,
             linuxPasswordStore: "auto",
+            lockedUseEnabled: false,
             mainWindowBounds: null,
             mainWindowMaximized: false,
             serverExposureMode: "network-accessible",
@@ -377,6 +383,7 @@ describe("DesktopSettings", () => {
         assert.deepEqual(yield* settings.load, {
           chromeBackgroundColor: null,
           linuxPasswordStore: "auto",
+          lockedUseEnabled: false,
           mainWindowBounds: null,
           mainWindowMaximized: false,
           serverExposureMode: "local-only",
@@ -406,6 +413,7 @@ describe("DesktopSettings", () => {
         assert.deepEqual(yield* settings.load, {
           chromeBackgroundColor: null,
           linuxPasswordStore: "auto",
+          lockedUseEnabled: false,
           mainWindowBounds: null,
           mainWindowMaximized: false,
           serverExposureMode: "local-only",
@@ -434,6 +442,7 @@ describe("DesktopSettings", () => {
         assert.deepEqual(yield* settings.load, {
           chromeBackgroundColor: null,
           linuxPasswordStore: "auto",
+          lockedUseEnabled: false,
           mainWindowBounds: null,
           mainWindowMaximized: false,
           serverExposureMode: "local-only",

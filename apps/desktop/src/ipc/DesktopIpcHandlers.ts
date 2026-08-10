@@ -8,6 +8,11 @@ import {
   setConnectionCatalog,
 } from "./methods/connectionCatalog.ts";
 import {
+  getLockedUseState,
+  reportLocalAgentActivity,
+  setLockedUseEnabled,
+} from "./methods/lockedUse.ts";
+import {
   getAdvertisedEndpoints,
   getServerExposureState,
   setServerExposureMode,
@@ -78,6 +83,10 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(setWslBackendEnabled);
   yield* ipc.handle(setWslDistro);
   yield* ipc.handle(setWslOnly);
+
+  yield* ipc.handle(getLockedUseState);
+  yield* ipc.handle(setLockedUseEnabled);
+  yield* ipc.handle(reportLocalAgentActivity);
 
   yield* ipc.handle(pickFolder);
   yield* ipc.handle(confirm);

@@ -63,6 +63,7 @@ import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hos
 import { useTheme } from "../../hooks/useTheme";
 import { DEFAULT_THEME_PALETTE, themePaletteLabel } from "../../lib/themePalettes";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { useLocalAgentActivityCount, useLockedUseSetting } from "../../hooks/useLockedUse";
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
@@ -1480,6 +1481,48 @@ function FontFamilySettingsRow({
   );
 }
 
+/**
+ * Desktop-only, so the row is absent in the browser rather than shown disabled:
+ * there is no host machine for a web client to keep awake.
+ */
+function LockedUseSettingsRow() {
+  const { supported, enabled, setEnabled } = useLockedUseSetting();
+  const activeThreadCount = useLocalAgentActivityCount();
+
+  if (!supported) return null;
+
+  const holding = enabled && activeThreadCount > 0;
+  const description = holding
+    ? `Keeping this machine awake — ${activeThreadCount} ${
+        activeThreadCount === 1 ? "agent is" : "agents are"
+      } working.`
+    : "Let agents finish their work when your screen locks or the machine goes idle.";
+
+  return (
+    <SettingsRow
+      {...searchableSetting("locked-use")}
+      title={
+        <span className="inline-flex items-center gap-1.5">
+          Locked use
+          <PolicyTooltip>
+            Only held while a local turn is actually in flight, so an idle T3 Code still lets the
+            machine sleep. This prevents idle sleep, not a closed lid: on a Mac, closing the lid
+            without an external display sleeps regardless.
+          </PolicyTooltip>
+        </span>
+      }
+      description={description}
+      control={
+        <Switch
+          checked={enabled}
+          onCheckedChange={(checked) => setEnabled(Boolean(checked))}
+          aria-label="Locked use"
+        />
+      }
+    />
+  );
+}
+
 export function GeneralSettingsPanel() {
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
@@ -1775,6 +1818,8 @@ export function GeneralSettingsPanel() {
             </>
           }
         />
+
+        <LockedUseSettingsRow />
 
         <SettingsRow
           {...searchableSetting("new-threads")}

@@ -47,6 +47,19 @@ Dragging is limited to the moves that map to a real command — drop on **Done**
 
 See [docs/user/board.md](./docs/user/board.md).
 
+### Locked use
+
+Locking your screen never stopped an agent — agents are child processes of the backend, and they keep running. What stops them is the machine going to **sleep** partway through a turn, which is exactly what happens when you walk away from a long run.
+
+**Settings → General → Locked use** (desktop only) lets T3 Code hold an OS power assertion so work in flight survives the screen locking or the machine going idle. It's off by default.
+
+The toggle on its own never keeps a machine awake. The assertion is held only while at least one thread on a _local_ backend actually has an agent working, and it's dropped the moment everything settles — so an idle T3 Code sleeps like any other app. Threads blocked on you (pending approval, awaiting input) don't count, and neither do `Monitoring` watch loops, which can run for hours. Remote SSH and relay environments don't count either: their work survives this machine sleeping.
+
+Two caveats worth knowing:
+
+- This prevents _idle_ sleep, not a closed lid. On a Mac, closing the lid without an external display sleeps regardless.
+- Activity is reported by the app window under a renewing lease, so if the window is closed or crashes mid-turn the hold lapses within a few minutes rather than pinning the machine awake indefinitely.
+
 ### Multiple source folders per project
 
 A project used to be bound to exactly one directory. Now a project can reference several source folders — e.g. a design-system repo, a sibling service, and a docs folder — with one marked as primary. Every existing single-folder project keeps working identically; this is purely additive.

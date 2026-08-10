@@ -29,6 +29,7 @@ import {
 } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
+import { useLockedUseActivityReporter } from "../hooks/useLockedUse";
 import { useClientSettings } from "../hooks/useSettings";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -138,11 +139,18 @@ function RootRouteView() {
         <SlowRpcRequestToastCoordinator />
         <HostedStaticEnvironmentBootstrap />
         {primaryEnvironmentAuthenticated ? <EventRouter /> : null}
+        {primaryEnvironmentAuthenticated ? <LockedUseActivityReporter /> : null}
         {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
         {appShell}
       </AnchoredToastProvider>
     </ToastProvider>
   );
+}
+
+/** Feeds the desktop's locked-use lease; see hooks/useLockedUse.ts. */
+function LockedUseActivityReporter() {
+  useLockedUseActivityReporter();
+  return null;
 }
 
 function GlassAppearanceSync() {

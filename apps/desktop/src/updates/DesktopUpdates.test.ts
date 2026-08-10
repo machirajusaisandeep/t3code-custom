@@ -160,6 +160,7 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
         load: Effect.succeed(DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS),
         setMainWindowBounds: () => Effect.die("unexpected main window bounds update"),
         setChromeBackgroundColor: () => Effect.die("unexpected chrome background color update"),
+        setLockedUseEnabled: () => Effect.die("unexpected locked use toggle"),
         setServerExposureMode: () => Effect.die("unexpected server exposure update"),
         setTailscaleServe: () => Effect.die("unexpected Tailscale Serve update"),
         setUpdateChannel: () => Effect.fail(setUpdateChannelError),

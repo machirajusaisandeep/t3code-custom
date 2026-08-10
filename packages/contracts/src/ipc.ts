@@ -483,6 +483,37 @@ export const DesktopWslStateSchema = Schema.Struct({
 });
 
 /**
+ * "Keep working while I'm away" — the desktop holds an OS power assertion so a
+ * turn in flight survives the screen locking or the machine going idle.
+ *
+ * `enabled` is the persisted preference; `holding` is whether the assertion is
+ * live right now. They are deliberately separate: the toggle alone never keeps
+ * the machine awake, only live local agent work does, so an idle T3 Code costs
+ * nothing. `activeThreadCount` is the renderer's last report of how many local
+ * threads have work in flight.
+ */
+export interface DesktopLockedUseState {
+  enabled: boolean;
+  holding: boolean;
+  activeThreadCount: number;
+}
+
+export const DesktopLockedUseStateSchema = Schema.Struct({
+  enabled: Schema.Boolean,
+  holding: Schema.Boolean,
+  activeThreadCount: Schema.Number,
+});
+
+/**
+ * How often the renderer re-reports a non-zero activity count, and how long the
+ * main process honours one report. Both live here so the producer and the
+ * consumer of the lease cannot drift apart; the lease is deliberately several
+ * heartbeats wide so an ordinary hiccup never drops a live hold.
+ */
+export const DESKTOP_LOCKED_USE_HEARTBEAT_MS = 60_000;
+export const DESKTOP_LOCKED_USE_LEASE_MS = 3 * DESKTOP_LOCKED_USE_HEARTBEAT_MS;
+
+/**
  * Renderer-facing snapshot of a desktop preview tab. Mirrors the main-process
  * PreviewTabState shape but uses serialisable primitives only.
  */
@@ -1018,6 +1049,16 @@ export interface DesktopBridge {
   setWslBackendEnabled: (enabled: boolean) => Promise<DesktopWslState>;
   setWslDistro: (distro: string | null) => Promise<DesktopWslState>;
   setWslOnly: (enabled: boolean) => Promise<DesktopWslState>;
+  getLockedUseState: () => Promise<DesktopLockedUseState>;
+  setLockedUseEnabled: (enabled: boolean) => Promise<DesktopLockedUseState>;
+  /**
+   * Renderer heartbeat carrying how many local threads currently have agent
+   * work in flight. Sent on every change and re-sent on an interval while the
+   * count is non-zero: the main process holds the assertion under a lease, so a
+   * renderer that dies mid-turn can only over-hold it for one lease period
+   * instead of pinning the machine awake forever.
+   */
+  reportLocalAgentActivity: (activeThreadCount: number) => Promise<DesktopLockedUseState>;
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;

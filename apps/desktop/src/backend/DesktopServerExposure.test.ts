@@ -252,6 +252,7 @@ describe("DesktopServerExposure", () => {
       load: Effect.succeed(DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS),
       setMainWindowBounds: () => Effect.die("unexpected main window bounds update"),
       setChromeBackgroundColor: () => Effect.die("unexpected chrome background color update"),
+      setLockedUseEnabled: () => Effect.die("unexpected locked use toggle"),
       setServerExposureMode: () => Effect.fail(settingsFailure),
       setTailscaleServe: () => Effect.fail(settingsFailure),
       setUpdateChannel: () => Effect.die("unexpected update channel change"),

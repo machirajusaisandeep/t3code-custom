@@ -212,6 +212,7 @@ function makeTestLayer(input: {
         return { settings: desktopSettings, changed };
       }),
     setChromeBackgroundColor: () => Effect.die("unexpected chrome background color update"),
+    setLockedUseEnabled: () => Effect.die("unexpected locked use toggle"),
     setServerExposureMode: () => Effect.die("unexpected server exposure update"),
     setTailscaleServe: () => Effect.die("unexpected Tailscale Serve update"),
     setUpdateChannel: () => Effect.die("unexpected update channel change"),
