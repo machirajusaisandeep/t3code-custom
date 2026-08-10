@@ -16,6 +16,36 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 
 Additions on top of upstream T3 Code, in this repo only:
 
+### Recover failed turns without rebuilding the prompt
+
+When an agent fails after a message is submitted, web and desktop now offer **Continue in a new thread**. The recovery draft preserves the original prompt and its full working context — including images, terminal context, element selections, preview annotations, review comments, permission mode, and interaction mode — so a broken provider session does not force you to reconstruct the task by hand.
+
+Recovery is deliberately all-or-nothing. If an attachment cannot be restored safely, T3 Code does not offer a partial draft that silently drops context.
+
+### Code Review & Pull Requests panel
+
+The right panel can now list pull requests and merge requests from GitHub, GitLab, Bitbucket, and Azure DevOps. Results are split into **Assigned to me** and **Not assigned to me**, searchable by title, number, branch, author, or assignee, and linked back to their hosting provider.
+
+Start an agent review directly from a change request. T3 Code creates a dedicated background thread, asks the selected reviewer to fetch and inspect the real diff, and keeps the review status attached to that row. A default review agent and custom review instructions can be configured in Settings.
+
+### Review an agent's plan with another agent
+
+Select **Review plan** on a proposed plan to have another agent critique it in a separate background thread while the original conversation remains available. When the review finishes, open the full review, run another independent review, or ask the original agent to replace its plan using the review feedback.
+
+Plan reviews are advisory and never modify or implement a plan automatically. See [Review a proposed plan](./docs/user/plan-review.md).
+
+### Configure MCP servers once for every provider
+
+Add local `stdio` or remote HTTP/SSE MCP servers from **Settings → MCP Servers**, test the connection before saving, and enable or disable each server without deleting it. Sensitive environment variables and request headers are stored through the server's secret handling and shown redacted after saving.
+
+Enabled servers are merged into new Claude, Codex, Cursor, Grok, and OpenCode sessions alongside T3 Code's built-in tools, so the same MCP setup does not need to be repeated in every provider's configuration.
+
+### Import conversations from other providers
+
+Import visible user and assistant messages from Cursor, Claude Code, Codex, or Grok into an existing project from the project menu or command palette; mobile exposes the same flow from the home screen. Discovery happens on the T3 server machine and only offers conversations whose provider workspace matches the selected project.
+
+Imports are idempotent snapshots. Native resume state is preserved when available; otherwise the result remains a readable transcript. See [Importing conversations](./docs/user/importing-conversations.md).
+
 ### Git panel with real staging and commit history
 
 Git used to be scattered across three surfaces — the chat-header split button, the branch selector above the composer, and the Diff panel — with no view of commit history and no way to tell staged apart from unstaged changes.
@@ -125,6 +155,8 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 - [Permission modes](./docs/user/permission-modes.md)
 - [Keyboard shortcuts](./docs/user/keybindings.md)
 - [Customize a project icon](./docs/user/project-settings.md)
+- [Review a proposed plan](./docs/user/plan-review.md)
+- [Import conversations from other providers](./docs/user/importing-conversations.md)
 - [Remote access from a phone or another machine](./docs/user/remote-access.md)
 - [Keeping app and server in sync](./docs/user/updating.md)
 - [Source control integrations](./docs/user/source-control.md)
