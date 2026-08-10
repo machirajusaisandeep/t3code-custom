@@ -39,6 +39,7 @@ import {
   CircleCheckIcon,
   CircleDashedIcon,
   ClockIcon,
+  DownloadIcon,
   FolderIcon,
   FolderPlusIcon,
   LayoutGridIcon,
@@ -98,6 +99,7 @@ import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { openCommandPalette } from "../commandPaletteBus";
+import { openThreadImportDialog } from "../threadImportDialog";
 import { openCreateProjectDialog } from "~/createProjectDialogBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
@@ -162,7 +164,15 @@ import { useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "./ui/menu";
 import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
@@ -3320,6 +3330,22 @@ export default function Sidebar() {
                         );
                       })}
                     </MenuRadioGroup>
+                    <MenuSeparator />
+                    <MenuItem
+                      onClick={() =>
+                        openThreadImportDialog(
+                          scopedProjectGroup
+                            ? {
+                                environmentId: scopedProjectGroup.environmentId,
+                                projectId: scopedProjectGroup.id,
+                              }
+                            : undefined,
+                        )
+                      }
+                    >
+                      <DownloadIcon />
+                      Import conversations…
+                    </MenuItem>
                   </MenuPopup>
                 </Menu>
                 <Tooltip>
