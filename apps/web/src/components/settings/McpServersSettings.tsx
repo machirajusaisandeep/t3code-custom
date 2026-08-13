@@ -47,7 +47,7 @@ import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
 type TransportKind = "stdio" | "http" | "sse";
-type RemoteAuthMode = "headers" | "oauth";
+type RemoteAuthMode = "none" | "headers" | "oauth";
 
 interface KeyValueRow {
   readonly rowId: string;
@@ -86,7 +86,7 @@ const EMPTY_DRAFT: McpServerDraft = {
   env: [],
   url: "",
   headers: [],
-  authMode: "headers",
+  authMode: "none",
   oauthAuthorized: false,
 };
 
@@ -109,7 +109,7 @@ function draftFromConfig(config: McpServerConfig): McpServerDraft {
       })),
       url: "",
       headers: [],
-      authMode: "headers",
+      authMode: "none",
       oauthAuthorized: false,
     };
   }
@@ -129,7 +129,7 @@ function draftFromConfig(config: McpServerConfig): McpServerDraft {
       sensitive: header.sensitive,
       valueRedacted: header.valueRedacted ?? false,
     })),
-    authMode: transport.oauth ? "oauth" : "headers",
+    authMode: transport.oauth ? "oauth" : (transport.headers?.length ?? 0) > 0 ? "headers" : "none",
     oauthAuthorized: transport.oauth?.authorized ?? false,
   };
 }
@@ -166,7 +166,7 @@ function configFromDraft(draft: McpServerDraft): McpServerConfig {
       url: draft.url.trim(),
       ...(draft.authMode === "oauth"
         ? { oauth: { authorized: draft.oauthAuthorized } }
-        : draft.headers.length > 0
+        : draft.authMode === "headers" && draft.headers.length > 0
           ? { headers: toFields(draft.headers) }
           : {}),
     },
@@ -418,7 +418,7 @@ function AddMcpServerDialog({
                 onChange={(event) => setDraft({ ...draft, url: event.target.value })}
               />
               <div className="flex gap-1.5">
-                {(["headers", "oauth"] as const).map((mode) => (
+                {(["none", "headers", "oauth"] as const).map((mode) => (
                   <Button
                     key={mode}
                     type="button"
@@ -427,11 +427,15 @@ function AddMcpServerDialog({
                     className="h-7 px-3 text-xs"
                     onClick={() => setDraft({ ...draft, authMode: mode })}
                   >
-                    {mode === "headers" ? "Headers" : "OAuth"}
+                    {mode === "none" ? "None" : mode === "headers" ? "Headers" : "OAuth"}
                   </Button>
                 ))}
               </div>
-              {draft.authMode === "oauth" ? (
+              {draft.authMode === "none" ? (
+                <p className="text-xs text-muted-foreground">
+                  No extra auth. Use this when the URL already includes an API key.
+                </p>
+              ) : draft.authMode === "oauth" ? (
                 <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3 text-xs">
                   {id === null ? (
                     <span className="text-muted-foreground">
@@ -623,7 +627,13 @@ export function McpServersSettingsPanel() {
   const handleTestConnection = async (
     config: McpServerConfig,
   ): Promise<{ status: "ok" | "error"; toolNames: ReadonlyArray<string>; detail?: string }> => {
-    const result = await testConnection({ environmentId, input: { config } });
+    const result = await testConnection({
+      environmentId,
+      input: {
+        config,
+        ...(dialogState.open && dialogState.id ? { id: dialogState.id } : {}),
+      },
+    });
     if (result._tag !== "Success") {
       return { status: "error", toolNames: [], detail: "Failed to connect." };
     }
