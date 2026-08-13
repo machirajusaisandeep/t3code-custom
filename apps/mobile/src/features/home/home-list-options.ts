@@ -84,6 +84,7 @@ export function HomeListOptionsProvider({
 export function hasCustomHomeListOptions(
   options: HomeListOptions & {
     readonly selectedProjectKey?: string | null;
+    readonly selectedProjectKeys?: readonly string[];
   },
 ): boolean {
   const defaultProjectSortOrder =
@@ -93,6 +94,7 @@ export function hasCustomHomeListOptions(
   return (
     options.selectedEnvironmentId !== null ||
     (options.selectedProjectKey !== null && options.selectedProjectKey !== undefined) ||
+    (options.selectedProjectKeys !== undefined && options.selectedProjectKeys.length > 0) ||
     options.projectSortOrder !== defaultProjectSortOrder ||
     options.threadSortOrder !== DEFAULT_SIDEBAR_THREAD_SORT_ORDER
   );

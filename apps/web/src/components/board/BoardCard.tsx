@@ -5,6 +5,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import {
   BotIcon,
   EllipsisIcon,
+  ExternalLinkIcon,
   GitBranchIcon,
   PinIcon,
   ServerIcon,
@@ -32,6 +33,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { vcsEnvironment } from "../../state/vcs";
 import type { SidebarThreadSummary } from "../../types";
 import { formatWorktreePathForDisplay } from "../../worktreeCleanup";
+import { shouldOpenInNewWindow } from "../../openAppWindow";
 import { cn } from "~/lib/utils";
 import type { BoardColumnId } from "./Board.logic";
 import type { BoardCardActions } from "./boardActions";
@@ -127,7 +129,29 @@ export const BoardCard = memo(function BoardCard(props: BoardCardProps) {
   const openThread = useCallback(
     (event?: ReactMouseEvent) => {
       if (event?.defaultPrevented) return;
+      if (event && shouldOpenInNewWindow(event)) {
+        actions.openThreadInNewWindow(threadRef);
+        return;
+      }
       actions.openThread(threadRef);
+    },
+    [actions, threadRef],
+  );
+
+  const openThreadInNewWindow = useCallback(
+    (event: ReactMouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      actions.openThreadInNewWindow(threadRef);
+    },
+    [actions, threadRef],
+  );
+
+  const openThreadOnAuxClick = useCallback(
+    (event: ReactMouseEvent) => {
+      if (!shouldOpenInNewWindow(event)) return;
+      event.preventDefault();
+      actions.openThreadInNewWindow(threadRef);
     },
     [actions, threadRef],
   );
@@ -149,7 +173,8 @@ export const BoardCard = memo(function BoardCard(props: BoardCardProps) {
         {...attributes}
         {...listeners}
         onClick={openThread}
-        className="flex w-full cursor-pointer flex-col gap-1.5 px-2.5 py-2 text-left"
+        onAuxClick={openThreadOnAuxClick}
+        className="flex w-full cursor-pointer flex-col gap-1.5 px-2.5 py-2 pr-12 text-left"
       >
         <span className="flex min-w-0 items-center gap-1.5">
           {isPinned ? (
@@ -277,6 +302,26 @@ export const BoardCard = memo(function BoardCard(props: BoardCardProps) {
         </span>
       </button>
 
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label="Open in new window"
+              onClick={openThreadInNewWindow}
+              className={cn(
+                "absolute top-1.5 right-7 inline-flex size-5 cursor-pointer items-center justify-center",
+                "rounded-md text-muted-foreground/60 opacity-0 hover:bg-accent hover:text-foreground",
+                "group-hover/board-card:opacity-100 focus-visible:opacity-100",
+              )}
+            />
+          }
+        >
+          <ExternalLinkIcon className="size-3.5" />
+        </TooltipTrigger>
+        <TooltipPopup>Open in new window</TooltipPopup>
+      </Tooltip>
+
       <BoardCardMenu
         threadRef={threadRef}
         thread={thread}
@@ -325,6 +370,9 @@ function BoardCardMenu(props: {
       </MenuTrigger>
       <MenuPopup align="end" className="w-52">
         <MenuItem onClick={() => actions.openThread(threadRef)}>Open thread</MenuItem>
+        <MenuItem onClick={() => actions.openThreadInNewWindow(threadRef)}>
+          Open in new window
+        </MenuItem>
         {props.pinningSupported ? (
           <MenuItem
             onClick={() =>

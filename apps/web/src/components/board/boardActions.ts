@@ -13,12 +13,14 @@ import { resolveSnoozePresets, type SnoozePreset } from "../Sidebar.snooze";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useClientSettings } from "../../hooks/useSettings";
+import { openAppHrefInNewWindow } from "../../openAppWindow";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import type { SidebarThreadSummary } from "../../types";
 import { useUiStateStore } from "../../uiStateStore";
 
 export interface BoardCardActions {
   readonly openThread: (threadRef: ScopedThreadRef) => void;
+  readonly openThreadInNewWindow: (threadRef: ScopedThreadRef) => void;
   readonly pinThread: (threadRef: ScopedThreadRef) => void;
   readonly unpinThread: (threadRef: ScopedThreadRef) => void;
   readonly settleThread: (threadRef: ScopedThreadRef) => void;
@@ -75,6 +77,17 @@ export function useBoardCardActions(): BoardCardActions {
     [router],
   );
 
+  const openThreadInNewWindow = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      const location = router.buildLocation({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(threadRef),
+      });
+      openAppHrefInNewWindow(location.href);
+    },
+    [router],
+  );
+
   const resolveStatusPill = useCallback(
     (thread: SidebarThreadSummary) =>
       resolveThreadStatusPill({
@@ -95,6 +108,7 @@ export function useBoardCardActions(): BoardCardActions {
   return useMemo(
     () => ({
       openThread,
+      openThreadInNewWindow,
       resolveStatusPill,
       // Presets resolve at open time so "In 1 hour" is relative to the click,
       // not to when the card mounted.
@@ -136,6 +150,7 @@ export function useBoardCardActions(): BoardCardActions {
       archiveThread,
       confirmAndDeleteThread,
       openThread,
+      openThreadInNewWindow,
       pinThread,
       report,
       resolveStatusPill,

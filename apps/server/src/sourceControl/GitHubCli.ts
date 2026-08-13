@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema";
 
 import {
   TrimmedNonEmptyString,
+  type ChangeRequestCheck,
   type SourceControlRepositoryVisibility,
   type VcsError,
 } from "@t3tools/contracts";
@@ -192,6 +193,7 @@ export interface GitHubPullRequestSummary {
   readonly headRepositoryOwnerLogin?: string | null;
   readonly author?: string | null;
   readonly assignees?: ReadonlyArray<string>;
+  readonly checks?: ReadonlyArray<ChangeRequestCheck>;
 }
 
 export interface GitHubRepositoryCloneUrls {
@@ -341,7 +343,7 @@ export const make = Effect.gen(function* () {
         "--limit",
         String(input.limit ?? 50),
         "--json",
-        "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner,author,assignees",
+        "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner,author,assignees,statusCheckRollup",
       ],
     }).pipe(
       Effect.map((result) => result.stdout.trim()),

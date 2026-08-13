@@ -307,16 +307,167 @@ export const make = Effect.gen(function* () {
 
   const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
   const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+  const applicationUrl = getDesktopUrl(environment.isDevelopment);
+  const rendererWebPreferences: Electron.WebPreferences = {
+    preload: environment.preloadPath,
+    backgroundThrottling: false,
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    webviewTag: true,
+  };
+  let lastShouldUseDarkColors = false;
+
+  const secondaryWindowOverrideOptions = (
+    shouldUseDarkColors: boolean,
+  ): Electron.BrowserWindowConstructorOptions => ({
+    minWidth: 840,
+    minHeight: 620,
+    width: DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE.width,
+    height: DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE.height,
+    autoHideMenuBar: true,
+    ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
+    backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
+    title: environment.displayName,
+    ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
+    webPreferences: rendererWebPreferences,
+  });
+
+  const attachSharedRendererGuards = (target: Electron.BrowserWindow): void => {
+    target.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+      if (
+        typeof params.partition !== "string" ||
+        !previewManager.isBrowserPartition(params.partition)
+      ) {
+        event.preventDefault();
+        return;
+      }
+      webPreferences.sandbox = true;
+      webPreferences.nodeIntegration = false;
+      webPreferences.nodeIntegrationInSubFrames = false;
+      webPreferences.contextIsolation = false;
+    });
+
+    target.webContents.on("context-menu", (event, params) => {
+      event.preventDefault();
+
+      const menuTemplate: Electron.MenuItemConstructorOptions[] = [];
+
+      if (params.misspelledWord) {
+        for (const suggestion of params.dictionarySuggestions.slice(0, 5)) {
+          menuTemplate.push({
+            label: suggestion,
+            click: () => target.webContents.replaceMisspelling(suggestion),
+          });
+        }
+        if (params.dictionarySuggestions.length === 0) {
+          menuTemplate.push({ label: "No suggestions", enabled: false });
+        }
+        menuTemplate.push({ type: "separator" });
+      }
+
+      if (Option.isSome(ElectronShell.parseSafeExternalUrl(params.linkURL))) {
+        menuTemplate.push(
+          {
+            label: "Copy Link",
+            click: () => {
+              void runPromise(electronShell.copyText(params.linkURL));
+            },
+          },
+          { type: "separator" },
+        );
+      }
+
+      if (params.mediaType === "image") {
+        menuTemplate.push({
+          label: "Copy Image",
+          click: () => target.webContents.copyImageAt(params.x, params.y),
+        });
+        menuTemplate.push({ type: "separator" });
+      }
+
+      menuTemplate.push(
+        { role: "cut", enabled: params.editFlags.canCut },
+        { role: "copy", enabled: params.editFlags.canCopy },
+        { role: "paste", enabled: params.editFlags.canPaste },
+        { role: "selectAll", enabled: params.editFlags.canSelectAll },
+      );
+
+      void runPromise(electronMenu.popupTemplate({ window: target, template: menuTemplate }));
+    });
+
+    target.webContents.setWindowOpenHandler(({ url }) => {
+      if (
+        isSameOriginRendererNavigation({
+          applicationUrl,
+          navigationUrl: url,
+        })
+      ) {
+        return {
+          action: "allow",
+          overrideBrowserWindowOptions: secondaryWindowOverrideOptions(lastShouldUseDarkColors),
+        };
+      }
+      if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
+        void runPromise(electronShell.openExternal(url));
+      }
+      return { action: "deny" };
+    });
+
+    target.webContents.on("did-create-window", (childWindow) => {
+      if (environment.platform === "darwin") {
+        childWindow.setAutoHideCursor(false);
+      }
+      attachSharedRendererGuards(childWindow);
+      childWindow.on("page-title-updated", (event) => {
+        event.preventDefault();
+        childWindow.setTitle(environment.displayName);
+      });
+      void runPromise(
+        electronTheme.shouldUseDarkColors.pipe(
+          Effect.flatMap((dark) => syncWindowAppearance(childWindow, dark, environment.platform)),
+        ),
+      );
+    });
+
+    target.webContents.on("will-navigate", (event, url) => {
+      if (
+        isSameOriginRendererNavigation({
+          applicationUrl,
+          navigationUrl: url,
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
+        void runPromise(electronShell.openExternal(url));
+      }
+    });
+
+    // Electron's windowMenu close role owns CmdOrCtrl+W. Holding the
+    // close-terminal shortcut can outlive the terminal that handled its first
+    // press, so reject repeats before they reach the native window accelerator.
+    // Deliberate presses still flow through the renderer or native menu.
+    target.webContents.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown" || !input.isAutoRepeat) return;
+      const modifier = environment.platform === "darwin" ? input.meta : input.control;
+      if (modifier && !input.alt && !input.shift && input.key.toLowerCase() === "w") {
+        event.preventDefault();
+      }
+    });
+  };
 
   const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
     Electron.BrowserWindow,
     DesktopWindowError
   > {
     yield* previewManager.getBrowserSession();
-    const applicationUrl = getDesktopUrl(environment.isDevelopment);
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
+    lastShouldUseDarkColors = shouldUseDarkColors;
     const persistedSettings = yield* desktopSettings.get;
     const persistedBounds = persistedSettings.mainWindowBounds;
     const displayBoundsResult = yield* Effect.sync(() => {
@@ -354,14 +505,7 @@ export const make = Effect.gen(function* () {
       ...iconOption,
       title: environment.displayName,
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
-      webPreferences: {
-        preload: environment.preloadPath,
-        backgroundThrottling: false,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        webviewTag: true,
-      },
+      webPreferences: rendererWebPreferences,
     });
 
     if (environment.platform === "darwin") {
@@ -455,101 +599,7 @@ export const make = Effect.gen(function* () {
     flushMainWindowBounds = flushBoundsPersist;
 
     yield* previewManager.setMainWindow(window);
-    window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
-      if (
-        typeof params.partition !== "string" ||
-        !previewManager.isBrowserPartition(params.partition)
-      ) {
-        event.preventDefault();
-        return;
-      }
-      webPreferences.sandbox = true;
-      webPreferences.nodeIntegration = false;
-      webPreferences.nodeIntegrationInSubFrames = false;
-      webPreferences.contextIsolation = false;
-    });
-
-    window.webContents.on("context-menu", (event, params) => {
-      event.preventDefault();
-
-      const menuTemplate: Electron.MenuItemConstructorOptions[] = [];
-
-      if (params.misspelledWord) {
-        for (const suggestion of params.dictionarySuggestions.slice(0, 5)) {
-          menuTemplate.push({
-            label: suggestion,
-            click: () => window.webContents.replaceMisspelling(suggestion),
-          });
-        }
-        if (params.dictionarySuggestions.length === 0) {
-          menuTemplate.push({ label: "No suggestions", enabled: false });
-        }
-        menuTemplate.push({ type: "separator" });
-      }
-
-      if (Option.isSome(ElectronShell.parseSafeExternalUrl(params.linkURL))) {
-        menuTemplate.push(
-          {
-            label: "Copy Link",
-            click: () => {
-              void runPromise(electronShell.copyText(params.linkURL));
-            },
-          },
-          { type: "separator" },
-        );
-      }
-
-      if (params.mediaType === "image") {
-        menuTemplate.push({
-          label: "Copy Image",
-          click: () => window.webContents.copyImageAt(params.x, params.y),
-        });
-        menuTemplate.push({ type: "separator" });
-      }
-
-      menuTemplate.push(
-        { role: "cut", enabled: params.editFlags.canCut },
-        { role: "copy", enabled: params.editFlags.canCopy },
-        { role: "paste", enabled: params.editFlags.canPaste },
-        { role: "selectAll", enabled: params.editFlags.canSelectAll },
-      );
-
-      void runPromise(electronMenu.popupTemplate({ window, template: menuTemplate }));
-    });
-
-    window.webContents.setWindowOpenHandler(({ url }) => {
-      if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
-        void runPromise(electronShell.openExternal(url));
-      }
-      return { action: "deny" };
-    });
-    window.webContents.on("will-navigate", (event, url) => {
-      if (
-        isSameOriginRendererNavigation({
-          applicationUrl,
-          navigationUrl: url,
-        })
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
-        void runPromise(electronShell.openExternal(url));
-      }
-    });
-
-    // Electron's windowMenu close role owns CmdOrCtrl+W. Holding the
-    // close-terminal shortcut can outlive the terminal that handled its first
-    // press, so reject repeats before they reach the native window accelerator.
-    // Deliberate presses still flow through the renderer or native menu.
-    window.webContents.on("before-input-event", (event, input) => {
-      if (input.type !== "keyDown" || !input.isAutoRepeat) return;
-      const modifier = environment.platform === "darwin" ? input.meta : input.control;
-      if (modifier && !input.alt && !input.shift && input.key.toLowerCase() === "w") {
-        event.preventDefault();
-      }
-    });
+    attachSharedRendererGuards(window);
 
     window.on("page-title-updated", (event) => {
       event.preventDefault();
@@ -868,6 +918,7 @@ export const make = Effect.gen(function* () {
     }),
     syncAppearance: Effect.gen(function* () {
       const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
+      lastShouldUseDarkColors = shouldUseDarkColors;
       yield* electronWindow.syncAllAppearance((window) =>
         syncWindowAppearance(window, shouldUseDarkColors, environment.platform),
       );

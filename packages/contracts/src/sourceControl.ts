@@ -24,6 +24,23 @@ export type ChangeRequestState = typeof ChangeRequestState.Type;
 export const ChangeRequestStateFilter = Schema.Literals(["open", "closed", "merged", "all"]);
 export type ChangeRequestStateFilter = typeof ChangeRequestStateFilter.Type;
 
+export const ChangeRequestCheckStatus = Schema.Literals([
+  "pass",
+  "fail",
+  "pending",
+  "skipping",
+  "cancel",
+]);
+export type ChangeRequestCheckStatus = typeof ChangeRequestCheckStatus.Type;
+
+export const ChangeRequestCheck = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  workflow: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  status: ChangeRequestCheckStatus,
+  url: Schema.optional(Schema.NullOr(Schema.String)),
+});
+export type ChangeRequestCheck = typeof ChangeRequestCheck.Type;
+
 export const ChangeRequest = Schema.Struct({
   provider: SourceControlProviderKind,
   number: PositiveInt,
@@ -42,6 +59,8 @@ export const ChangeRequest = Schema.Struct({
   // than failing the decode and dropping the change request.
   author: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   assignees: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  /** CI checks reported for the pull request, when the provider exposes them. */
+  checks: Schema.optional(Schema.Array(ChangeRequestCheck)),
 });
 export type ChangeRequest = typeof ChangeRequest.Type;
 

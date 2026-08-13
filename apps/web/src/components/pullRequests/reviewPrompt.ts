@@ -57,12 +57,32 @@ export function buildCodeReviewPrompt({
     `- URL: ${changeRequest.url}`,
   ].join("\n");
 
+  const checks = changeRequest.checks ?? [];
+  const checkSummary =
+    checks.length === 0
+      ? []
+      : [
+          "",
+          "CI checks:",
+          ...checks.map(
+            (check) =>
+              `- ${check.workflow && check.workflow !== check.name ? `${check.workflow} · ${check.name}` : check.name}: ${check.status}${check.url ? ` (${check.url})` : ""}`,
+          ),
+          ...(checks.some((check) => check.status === "fail")
+            ? [
+                "",
+                "One or more CI checks failed. Tell the user which checks failed and ask whether they want you to fix them. Do not change files or start fixes for those failures until the user confirms.",
+              ]
+            : []),
+        ];
+
   const trimmedInstructions = instructions.trim();
 
   return [
     `Review pull request #${changeRequest.number}: ${changeRequest.title}`,
     "",
     metadata,
+    ...checkSummary,
     "",
     fetchStep,
     "You are on the repository's current checkout, not the pull request's branch, so read files for context but review the diff you fetched rather than the working tree.",

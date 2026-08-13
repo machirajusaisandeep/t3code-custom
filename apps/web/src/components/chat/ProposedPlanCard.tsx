@@ -19,7 +19,7 @@ import {
   stripDisplayedPlanMarkdown,
 } from "../../proposedPlan";
 import ChatMarkdown from "../ChatMarkdown";
-import { EllipsisIcon } from "lucide-react";
+import { EllipsisIcon, ListChecksIcon, Maximize2Icon, Minimize2Icon } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -51,6 +51,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   reviewStarting = false,
   sourceBusy = false,
   onReviewPlan,
+  onOpenPlan,
   onOpenReview,
   onRevisePlan,
 }: {
@@ -64,6 +65,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   reviewStarting?: boolean;
   sourceBusy?: boolean;
   onReviewPlan?: ((planId: string) => void) | undefined;
+  onOpenPlan?: ((planId: string) => void) | undefined;
   onOpenReview?: ((reviewThreadId: ThreadId) => void) | undefined;
   onRevisePlan?: ((input: { planId: string; feedback: string }) => void) | undefined;
 }) {
@@ -260,6 +262,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
                   disabled={reviewStarting || reviewState === "running"}
                   onClick={() => onReviewPlan(planId)}
                 >
+                  <ListChecksIcon aria-hidden className="size-3.5" />
                   {reviewState === "completed" ||
                   reviewState === "error" ||
                   reviewState === "stopped"
@@ -299,8 +302,19 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
                 size="sm"
                 variant="outline"
                 data-scroll-anchor-ignore
-                onClick={() => setExpanded((value) => !value)}
+                onClick={() => {
+                  if (!expanded && onOpenPlan) {
+                    onOpenPlan(planId);
+                    return;
+                  }
+                  setExpanded((value) => !value);
+                }}
               >
+                {expanded ? (
+                  <Minimize2Icon aria-hidden className="size-3.5" />
+                ) : (
+                  <Maximize2Icon aria-hidden className="size-3.5" />
+                )}
                 {expanded ? "Collapse plan" : "Expand plan"}
               </Button>
             ) : null}

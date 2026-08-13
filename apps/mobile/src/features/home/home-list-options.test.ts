@@ -27,5 +27,11 @@ describe("home list options", () => {
     expect(
       hasCustomHomeListOptions({ ...defaults, selectedProjectKey: "environment-1:project-1" }),
     ).toBe(true);
+    expect(
+      hasCustomHomeListOptions({
+        ...defaults,
+        selectedProjectKeys: ["environment-1:project-1", "environment-1:project-2"],
+      }),
+    ).toBe(true);
   });
 });

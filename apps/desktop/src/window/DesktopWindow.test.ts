@@ -404,6 +404,12 @@ describe("DesktopWindow", () => {
         navigationUrl: "not a url",
       }),
     );
+    assert.isTrue(
+      DesktopWindow.isSameOriginRendererNavigation({
+        applicationUrl: "t3code://app/",
+        navigationUrl: "t3code://app/#/environment/thread",
+      }),
+    );
   });
 
   it.effect("opens the window on the persisted theme chrome color", () =>
@@ -1055,6 +1061,38 @@ describe("DesktopWindow", () => {
       }),
     );
   });
+
+  it.effect("allows same-origin window.open so app routes can pop out", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        const handler = fakeWindow.window.webContents.setWindowOpenHandler as unknown as {
+          mock: { calls: ReadonlyArray<readonly [(input: { url: string }) => { action: string }]> };
+        };
+        const resolve = handler.mock.calls[0]?.[0];
+        if (!resolve) {
+          return yield* Effect.die("setWindowOpenHandler was not registered");
+        }
+
+        const allowed = resolve({ url: "t3code-dev://app/#/environment/thread" });
+        assert.equal(allowed.action, "allow");
+
+        const denied = resolve({ url: "https://example.com/" });
+        assert.equal(denied.action, "deny");
+      }).pipe(Effect.provide(layer));
+    }),
+  );
 
   it.effect("opens safe off-origin renderer navigations in the system browser", () =>
     Effect.gen(function* () {

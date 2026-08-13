@@ -32,15 +32,30 @@ export interface HomeListFilterMenu {
   readonly items: Array<HomeListFilterMenuAction | HomeListFilterMenuSubmenu>;
 }
 
+export function toggleProjectScopeKey(selectedKeys: readonly string[], key: string): string[] {
+  return selectedKeys.includes(key)
+    ? selectedKeys.filter((selected) => selected !== key)
+    : [...selectedKeys, key];
+}
+
+export function shouldShowProjectSelectMode(
+  selectMode: boolean,
+  selectedKeyCount: number,
+): boolean {
+  return selectMode || selectedKeyCount > 1;
+}
+
 export function buildHomeListFilterMenu(props: {
   readonly environments: ReadonlyArray<HomeListFilterMenuEnvironment>;
   readonly projects: ReadonlyArray<HomeListFilterMenuProject>;
   readonly selectedEnvironmentId: EnvironmentId | null;
-  readonly selectedProjectKey: string | null;
+  readonly selectedProjectKeys: readonly string[];
+  readonly projectSelectMode?: boolean;
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly threadSortOrder: SidebarThreadSortOrder;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
-  readonly onProjectChange: (projectKey: string | null) => void;
+  readonly onProjectScopeChange: (projectKeys: readonly string[]) => void;
+  readonly onProjectSelectModeChange?: (enabled: boolean) => void;
   readonly onProjectSortOrderChange: (sortOrder: HomeProjectSortOrder) => void;
   readonly onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
   /** False hides the sort/group submenus. Thread List v2 uses a fixed
@@ -49,6 +64,11 @@ export function buildHomeListFilterMenu(props: {
   readonly listOrganization?: boolean;
 }): HomeListFilterMenu {
   const items: Array<HomeListFilterMenuAction | HomeListFilterMenuSubmenu> = [];
+  const selectedProjectKeys = props.selectedProjectKeys;
+  const projectSelectMode = shouldShowProjectSelectMode(
+    props.projectSelectMode === true,
+    selectedProjectKeys.length,
+  );
 
   items.push({
     type: "submenu",
@@ -82,14 +102,41 @@ export function buildHomeListFilterMenu(props: {
           type: "action",
           title: "All projects",
           subtitle: "Show threads from every project",
-          state: props.selectedProjectKey === null ? "on" : "off",
-          onPress: () => props.onProjectChange(null),
+          state: selectedProjectKeys.length === 0 ? "on" : "off",
+          onPress: () => {
+            props.onProjectSelectModeChange?.(false);
+            props.onProjectScopeChange([]);
+          },
         },
+        ...(props.projects.length > 1
+          ? [
+              {
+                type: "action" as const,
+                title: "Select projects",
+                subtitle: "Show threads from more than one project",
+                state: projectSelectMode ? ("on" as const) : ("off" as const),
+                onPress: () => {
+                  if (projectSelectMode && selectedProjectKeys.length <= 1) {
+                    props.onProjectSelectModeChange?.(false);
+                    return;
+                  }
+                  props.onProjectSelectModeChange?.(true);
+                },
+              },
+            ]
+          : []),
         ...props.projects.map((project) => ({
           type: "action" as const,
           title: project.label,
-          state: props.selectedProjectKey === project.key ? ("on" as const) : ("off" as const),
-          onPress: () => props.onProjectChange(project.key),
+          state: selectedProjectKeys.includes(project.key) ? ("on" as const) : ("off" as const),
+          onPress: () => {
+            if (projectSelectMode) {
+              props.onProjectScopeChange(toggleProjectScopeKey(selectedProjectKeys, project.key));
+              return;
+            }
+            props.onProjectSelectModeChange?.(false);
+            props.onProjectScopeChange([project.key]);
+          },
         })),
       ],
     });

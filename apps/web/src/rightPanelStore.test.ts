@@ -137,6 +137,31 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("opens a plan surface by plan id and keeps it across migration", () => {
+    useRightPanelStore.getState().openPlan(refA, "plan-1");
+
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "plan:plan-1",
+      surfaces: [{ id: "plan:plan-1", kind: "plan", planId: "plan-1" }],
+    });
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "plan:plan-1",
+            surfaces: [{ id: "plan:plan-1", kind: "plan", planId: "plan-1" }],
+          },
+        },
+      }).byThreadKey["env-1:thread-A"],
+    ).toEqual({
+      isOpen: true,
+      activeSurfaceId: "plan:plan-1",
+      surfaces: [{ id: "plan:plan-1", kind: "plan", planId: "plan-1" }],
+    });
+  });
+
   it("open sets the active panel for a thread", () => {
     useRightPanelStore.getState().open(refA, "preview");
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("preview");
