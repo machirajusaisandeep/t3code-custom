@@ -80,6 +80,51 @@ it.effect("testConnection reports an error result for an unreachable server", ()
   }).pipe(Effect.provide(makeRegistryLayer())),
 );
 
+it.effect("testConnection refuses an unsaved OAuth server", () =>
+  Effect.gen(function* () {
+    const registry = yield* McpServerRegistry.McpServerRegistry;
+    const result = yield* registry.testConnection({
+      config: {
+        name: "OAuth Draft",
+        enabled: true,
+        transport: {
+          type: "http",
+          url: "https://example.com/mcp",
+          oauth: { authorized: false },
+        },
+      },
+    });
+    assert.equal(result.status, "error");
+    assert.equal(result.detail, "Save this server before testing an OAuth-authorized connection.");
+  }).pipe(Effect.provide(makeRegistryLayer())),
+);
+
+it.effect("testConnection does not refuse a saved OAuth server for lack of id", () =>
+  Effect.gen(function* () {
+    const registry = yield* McpServerRegistry.McpServerRegistry;
+    const created = yield* registry.upsert({
+      config: {
+        name: "OAuth Server",
+        enabled: true,
+        transport: {
+          type: "http",
+          url: "http://127.0.0.1:1/mcp",
+          oauth: { authorized: false },
+        },
+      },
+    });
+    const result = yield* registry.testConnection({
+      id: created.id,
+      config: created.config,
+    });
+    assert.equal(result.status, "error");
+    assert.notEqual(
+      result.detail,
+      "Save this server before testing an OAuth-authorized connection.",
+    );
+  }).pipe(Effect.provide(makeRegistryLayer())),
+);
+
 it.effect("clears stored OAuth secrets when an OAuth-configured server is removed", () =>
   Effect.gen(function* () {
     const registry = yield* McpServerRegistry.McpServerRegistry;
