@@ -10,7 +10,7 @@ interface ComposerPreviewAnnotationCardsProps {
   annotations: ReadonlyArray<PreviewAnnotationPayload>;
   images: ReadonlyArray<ComposerImageAttachment>;
   onRemove: (annotationId: string) => void;
-  onExpandImage: (imageId: string) => void;
+  onMarkUpImage: (imageId: string) => void;
   className?: string;
 }
 
@@ -30,7 +30,7 @@ export function ComposerPreviewAnnotationCards({
   annotations,
   images,
   onRemove,
-  onExpandImage,
+  onMarkUpImage,
   className,
 }: ComposerPreviewAnnotationCardsProps) {
   if (annotations.length === 0) return null;
@@ -52,9 +52,9 @@ export function ComposerPreviewAnnotationCards({
             {image?.previewUrl ? (
               <button
                 type="button"
-                aria-label={`Preview ${image.name}`}
+                aria-label={`Mark up ${image.name}`}
                 className="size-14 shrink-0 cursor-zoom-in overflow-hidden border-r border-border/70 bg-muted"
-                onClick={() => onExpandImage(image.id)}
+                onClick={() => onMarkUpImage(image.id)}
               >
                 <img
                   src={image.previewUrl}

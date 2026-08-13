@@ -163,6 +163,9 @@ import {
   ResourceTelemetrySnapshot,
 } from "./resourceTelemetry.ts";
 import {
+  McpServerOAuthAuthorizeInput,
+  McpServerOAuthAuthorizeProgressEvent,
+  McpServerOAuthRevokeInput,
   McpServerRegistryError,
   McpServerRemoveInput,
   McpServerTestConnectionInput,
@@ -286,6 +289,8 @@ export const WS_METHODS = {
   mcpServersUpsert: "mcpServers.upsert",
   mcpServersRemove: "mcpServers.remove",
   mcpServersTestConnection: "mcpServers.testConnection",
+  mcpServersOAuthAuthorize: "mcpServers.oauthAuthorize",
+  mcpServersOAuthRevoke: "mcpServers.oauthRevoke",
 
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
@@ -501,6 +506,19 @@ export const WsMcpServersTestConnectionRpc = Rpc.make(WS_METHODS.mcpServersTestC
   payload: McpServerTestConnectionInput,
   success: McpServerTestConnectionResult,
   error: Schema.Union([McpServerRegistryError, ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+export const WsMcpServersOAuthAuthorizeRpc = Rpc.make(WS_METHODS.mcpServersOAuthAuthorize, {
+  payload: McpServerOAuthAuthorizeInput,
+  success: McpServerOAuthAuthorizeProgressEvent,
+  error: Schema.Union([McpServerRegistryError, ServerSettingsError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+export const WsMcpServersOAuthRevokeRpc = Rpc.make(WS_METHODS.mcpServersOAuthRevoke, {
+  payload: McpServerOAuthRevokeInput,
+  success: Schema.Void,
+  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
 });
 
 export const WsSourceControlListChangeRequestsRpc = Rpc.make(
@@ -939,6 +957,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsMcpServersUpsertRpc,
   WsMcpServersRemoveRpc,
   WsMcpServersTestConnectionRpc,
+  WsMcpServersOAuthAuthorizeRpc,
+  WsMcpServersOAuthRevokeRpc,
   WsSourceControlListChangeRequestsRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,

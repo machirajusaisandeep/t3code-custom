@@ -257,6 +257,64 @@ describe("composerDraftStore addImages", () => {
   });
 });
 
+describe("composerDraftStore replaceImage", () => {
+  const threadId = ThreadId.make("thread-replace-image");
+  const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
+  let originalRevokeObjectUrl: typeof URL.revokeObjectURL;
+  let revokeSpy: ReturnType<typeof vi.fn<(url: string) => void>>;
+
+  beforeEach(() => {
+    resetComposerDraftStore();
+    originalRevokeObjectUrl = URL.revokeObjectURL;
+    revokeSpy = vi.fn();
+    URL.revokeObjectURL = revokeSpy;
+  });
+
+  afterEach(() => {
+    URL.revokeObjectURL = originalRevokeObjectUrl;
+  });
+
+  it("replaces an attached image in place and revokes the old preview", () => {
+    const original = makeImage({
+      id: "img-markup",
+      previewUrl: "blob:original",
+      name: "page.png",
+      sizeBytes: 12,
+    });
+    const marked = makeImage({
+      id: "img-ignored",
+      previewUrl: "blob:marked",
+      name: "page-marked.png",
+      sizeBytes: 24,
+    });
+
+    useComposerDraftStore.getState().addImage(threadRef, original);
+    useComposerDraftStore.getState().replaceImage(threadRef, "img-markup", marked);
+
+    const draft = draftFor(threadId, TEST_ENVIRONMENT_ID);
+    expect(draft?.images).toHaveLength(1);
+    expect(draft?.images[0]?.id).toBe("img-markup");
+    expect(draft?.images[0]?.previewUrl).toBe("blob:marked");
+    expect(draft?.images[0]?.name).toBe("page-marked.png");
+    expect(draft?.persistedAttachments).toEqual([]);
+    expect(draft?.nonPersistedImageIds).toEqual(["img-markup"]);
+    expect(revokeSpy).toHaveBeenCalledWith("blob:original");
+    expect(revokeSpy).not.toHaveBeenCalledWith("blob:marked");
+  });
+
+  it("revokes a replacement preview when the original image is gone", () => {
+    const marked = makeImage({
+      id: "missing",
+      previewUrl: "blob:orphan",
+    });
+
+    useComposerDraftStore.getState().replaceImage(threadRef, "missing", marked);
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
+    expect(revokeSpy).toHaveBeenCalledWith("blob:orphan");
+  });
+});
+
 describe("composerDraftStore clearComposerContent", () => {
   const threadId = ThreadId.make("thread-clear");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);

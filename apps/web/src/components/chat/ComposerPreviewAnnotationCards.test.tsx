@@ -32,7 +32,7 @@ describe("ComposerPreviewAnnotationCards", () => {
         annotations={[annotation]}
         images={[]}
         onRemove={vi.fn()}
-        onExpandImage={vi.fn()}
+        onMarkUpImage={vi.fn()}
       />,
     );
 

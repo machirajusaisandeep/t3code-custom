@@ -76,10 +76,23 @@ export type McpServerStdioTransport = typeof McpServerStdioTransport.Type;
 export const McpServerRemoteTransportKind = Schema.Literals(["http", "sse"]);
 export type McpServerRemoteTransportKind = typeof McpServerRemoteTransportKind.Type;
 
+/**
+ * Status marker for OAuth-authorized remote MCP servers. Presence of this
+ * field on a transport (even `authorized: false`) means the server is
+ * configured to use OAuth rather than static headers. The actual client
+ * registration and tokens never live here — they're stored server-side in
+ * `ServerSecretStore`, keyed by `McpServerId`.
+ */
+export const McpServerOAuthStatus = Schema.Struct({
+  authorized: Schema.Boolean,
+});
+export type McpServerOAuthStatus = typeof McpServerOAuthStatus.Type;
+
 export const McpServerRemoteTransport = Schema.Struct({
   type: McpServerRemoteTransportKind,
   url: TrimmedNonEmptyString,
   headers: Schema.optionalKey(McpServerHeaders),
+  oauth: Schema.optionalKey(McpServerOAuthStatus),
 });
 export type McpServerRemoteTransport = typeof McpServerRemoteTransport.Type;
 
@@ -152,6 +165,37 @@ export const McpServerTestConnectionResult = Schema.Struct({
   detail: Schema.optional(Schema.String),
 });
 export type McpServerTestConnectionResult = typeof McpServerTestConnectionResult.Type;
+
+/** Requires an already-saved server — OAuth needs a stable `McpServerId` to key stored credentials against, so drafts can't be authorized before their first save. */
+export const McpServerOAuthAuthorizeInput = Schema.Struct({
+  id: McpServerId,
+});
+export type McpServerOAuthAuthorizeInput = typeof McpServerOAuthAuthorizeInput.Type;
+
+/**
+ * Progress events for the streaming authorize RPC. `awaiting-authorization`
+ * carries the authorization URL as soon as it's known (before the user has
+ * necessarily finished in their browser) so the UI can show it as a
+ * copyable link; `result` is the terminal event, shaped like
+ * `McpServerTestConnectionResult` since a successful authorization also
+ * verifies by listing tools.
+ */
+export const McpServerOAuthAuthorizeProgressEvent = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("awaiting-authorization"),
+    authorizationUrl: Schema.String,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("result"),
+    result: McpServerTestConnectionResult,
+  }),
+]);
+export type McpServerOAuthAuthorizeProgressEvent = typeof McpServerOAuthAuthorizeProgressEvent.Type;
+
+export const McpServerOAuthRevokeInput = Schema.Struct({
+  id: McpServerId,
+});
+export type McpServerOAuthRevokeInput = typeof McpServerOAuthRevokeInput.Type;
 
 export class McpServerRegistryError extends Schema.TaggedErrorClass<McpServerRegistryError>()(
   "McpServerRegistryError",

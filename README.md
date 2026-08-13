@@ -16,6 +16,10 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 
 Additions on top of upstream T3 Code, in this repo only:
 
+### Mark up images before sending them
+
+Paste or drop any image into the composer, then click the thumbnail to draw on it. Use arrows, boxes, numbered pins, freehand, or text, and crop to the part that matters. Markup is burned into the image, so the agent sees the highlight instead of hunting through a large picture for one button label. See [Mark up an image](./docs/user/image-markup.md).
+
 ### Recover failed turns without rebuilding the prompt
 
 When an agent fails after a message is submitted, web and desktop now offer **Continue in a new thread**. The recovery draft preserves the original prompt and its full working context — including images, terminal context, element selections, preview annotations, review comments, permission mode, and interaction mode — so a broken provider session does not force you to reconstruct the task by hand.
@@ -28,11 +32,15 @@ The right panel can now list pull requests and merge requests from GitHub, GitLa
 
 Start an agent review directly from a change request. T3 Code creates a dedicated background thread, asks the selected reviewer to fetch and inspect the real diff, and keeps the review status attached to that row. A default review agent and custom review instructions can be configured in Settings.
 
+![Code review thread reviewing a pull request's real diff](docs/images/codereview.png)
+
 ### Review an agent's plan with another agent
 
 Select **Review plan** on a proposed plan to have another agent critique it in a separate background thread while the original conversation remains available. When the review finishes, open the full review, run another independent review, or ask the original agent to replace its plan using the review feedback.
 
 Plan reviews are advisory and never modify or implement a plan automatically. See [Review a proposed plan](./docs/user/plan-review.md).
+
+<img src="docs/images/planreview.png" alt="Review plan option on a proposed plan" width="420"> <img src="docs/images/planreview2.png" alt="Plan review feedback in a background thread" width="420">
 
 ### Configure MCP servers once for every provider
 
@@ -40,11 +48,15 @@ Add local `stdio` or remote HTTP/SSE MCP servers from **Settings → MCP Servers
 
 Enabled servers are merged into new Claude, Codex, Cursor, Grok, and OpenCode sessions alongside T3 Code's built-in tools, so the same MCP setup does not need to be repeated in every provider's configuration.
 
+![Settings → MCP Servers list with configured servers](docs/images/mcp.png)
+
 ### Import conversations from other providers
 
 Import visible user and assistant messages from Cursor, Claude Code, Codex, or Grok into an existing project from the project menu or command palette; mobile exposes the same flow from the home screen. Discovery happens on the T3 server machine and only offers conversations whose provider workspace matches the selected project.
 
 Imports are idempotent snapshots. Native resume state is preserved when available; otherwise the result remains a readable transcript. See [Importing conversations](./docs/user/importing-conversations.md).
+
+![Import conversations dialog listing discovered provider conversations](docs/images/importconversations.png)
 
 ### Git panel with real staging and commit history
 
