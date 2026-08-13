@@ -38,6 +38,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import { MermaidBlock } from "./chat/MermaidBlock";
 import { renderSkillInlineMarkdownChildren } from "./chat/SkillInlineText";
 import { CHAT_FILE_TAG_CHIP_CLASS_NAME, FileTagChipContent } from "./chat/FileTagChip";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
@@ -76,6 +77,7 @@ import {
   type MarkdownFileLinkMeta,
 } from "../markdown-links";
 import { readLocalApi } from "../localApi";
+import { isMermaidLanguage } from "../lib/mermaidRendering";
 import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useActiveEnvironmentId } from "../state/entities";
@@ -1569,6 +1571,44 @@ function ChatMarkdown({
 
         const language = extractFenceLanguage(codeBlock.className);
         const fenceTitle = extractFenceTitle(extractPreCodeMeta(node));
+        const highlighted = (
+          <RenderErrorBoundary fallback={<pre {...props}>{children}</pre>}>
+            <Suspense fallback={<pre {...props}>{children}</pre>}>
+              <SuspenseShikiCodeBlock
+                className={codeBlock.className}
+                code={codeBlock.code}
+                themeName={diffThemeName}
+                palette={palette}
+                isStreaming={isStreaming}
+              />
+            </Suspense>
+          </RenderErrorBoundary>
+        );
+        if (isMermaidLanguage(language)) {
+          return (
+            <RenderErrorBoundary
+              fallback={
+                <MarkdownCodeBlock
+                  code={codeBlock.code}
+                  language={language}
+                  fenceTitle={fenceTitle}
+                  theme={resolvedTheme}
+                >
+                  {highlighted}
+                </MarkdownCodeBlock>
+              }
+            >
+              <MermaidBlock
+                code={codeBlock.code}
+                theme={resolvedTheme}
+                isStreaming={isStreaming}
+                fenceTitle={fenceTitle}
+              >
+                {highlighted}
+              </MermaidBlock>
+            </RenderErrorBoundary>
+          );
+        }
         return (
           <MarkdownCodeBlock
             code={codeBlock.code}
@@ -1576,17 +1616,7 @@ function ChatMarkdown({
             fenceTitle={fenceTitle}
             theme={resolvedTheme}
           >
-            <RenderErrorBoundary fallback={<pre {...props}>{children}</pre>}>
-              <Suspense fallback={<pre {...props}>{children}</pre>}>
-                <SuspenseShikiCodeBlock
-                  className={codeBlock.className}
-                  code={codeBlock.code}
-                  themeName={diffThemeName}
-                  palette={palette}
-                  isStreaming={isStreaming}
-                />
-              </Suspense>
-            </RenderErrorBoundary>
+            {highlighted}
           </MarkdownCodeBlock>
         );
       },

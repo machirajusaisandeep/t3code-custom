@@ -1708,6 +1708,18 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "mcp-servers",
             },
           ),
+        [WS_METHODS.mcpServersOAuthAuthorize]: (input) =>
+          observeRpcStream(
+            WS_METHODS.mcpServersOAuthAuthorize,
+            mcpServerRegistry.authorize(input),
+            {
+              "rpc.aggregate": "mcp-servers",
+            },
+          ),
+        [WS_METHODS.mcpServersOAuthRevoke]: (input) =>
+          observeRpcEffect(WS_METHODS.mcpServersOAuthRevoke, mcpServerRegistry.revoke(input), {
+            "rpc.aggregate": "mcp-servers",
+          }),
         [WS_METHODS.sourceControlListChangeRequests]: (input) =>
           observeRpcEffect(
             WS_METHODS.sourceControlListChangeRequests,

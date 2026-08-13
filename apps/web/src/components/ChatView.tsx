@@ -6751,7 +6751,6 @@ function ChatViewContent(props: ChatViewProps) {
                             focusComposer={focusComposer}
                             scheduleComposerFocus={scheduleComposerFocus}
                             setThreadError={setThreadError}
-                            onExpandImage={onExpandTimelineImage}
                           />
                         </div>
                       </div>

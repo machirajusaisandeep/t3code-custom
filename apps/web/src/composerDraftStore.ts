@@ -488,6 +488,11 @@ interface ComposerDraftStoreState {
   ) => void;
   addImage: (threadRef: ComposerThreadTarget, image: ComposerImageAttachment) => void;
   addImages: (threadRef: ComposerThreadTarget, images: ComposerImageAttachment[]) => void;
+  replaceImage: (
+    threadRef: ComposerThreadTarget,
+    imageId: string,
+    image: ComposerImageAttachment,
+  ) => void;
   removeImage: (threadRef: ComposerThreadTarget, imageId: string) => void;
   insertTerminalContext: (
     threadRef: ComposerThreadTarget,
@@ -3038,6 +3043,49 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 [threadKey]: {
                   ...existing,
                   images: [...existing.images, ...dedupedIncoming],
+                },
+              },
+            };
+          });
+        },
+        replaceImage: (threadRef, imageId, image) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          const existing = get().draftsByThreadKey[threadKey];
+          const currentImage = existing?.images.find((candidate) => candidate.id === imageId);
+          if (!currentImage) {
+            revokeObjectPreviewUrl(image.previewUrl);
+            return;
+          }
+          if (currentImage.previewUrl !== image.previewUrl) {
+            revokeObjectPreviewUrl(currentImage.previewUrl);
+          }
+          const nextImage: ComposerImageAttachment = {
+            ...image,
+            id: imageId,
+          };
+          set((state) => {
+            const current = state.draftsByThreadKey[threadKey];
+            if (!current) {
+              return state;
+            }
+            const alreadyPending = current.nonPersistedImageIds.includes(imageId);
+            return {
+              draftsByThreadKey: {
+                ...state.draftsByThreadKey,
+                [threadKey]: {
+                  ...current,
+                  images: current.images.map((candidate) =>
+                    candidate.id === imageId ? nextImage : candidate,
+                  ),
+                  persistedAttachments: current.persistedAttachments.filter(
+                    (attachment) => attachment.id !== imageId,
+                  ),
+                  nonPersistedImageIds: alreadyPending
+                    ? current.nonPersistedImageIds
+                    : [...current.nonPersistedImageIds, imageId],
                 },
               },
             };

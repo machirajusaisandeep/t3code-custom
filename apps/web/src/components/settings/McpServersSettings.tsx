@@ -4,7 +4,8 @@
  * Cursor/OpenCode) alongside T3's own built-in MCP server — see
  * `apps/server/src/mcp/resolveSessionMcpServers.ts`.
  */
-import type { McpServerConfig, McpServerId } from "@t3tools/contracts";
+import type { EnvironmentId, McpServerConfig, McpServerId } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
 import {
   CheckCircle2Icon,
   Loader2Icon,
@@ -46,6 +47,7 @@ import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
 type TransportKind = "stdio" | "http" | "sse";
+type RemoteAuthMode = "headers" | "oauth";
 
 interface KeyValueRow {
   readonly rowId: string;
@@ -65,6 +67,9 @@ interface McpServerDraft {
   readonly env: ReadonlyArray<KeyValueRow>;
   readonly url: string;
   readonly headers: ReadonlyArray<KeyValueRow>;
+  readonly authMode: RemoteAuthMode;
+  /** Mirrors the last-known server-reported status; toggled by the authorize/revoke flow, never directly editable. */
+  readonly oauthAuthorized: boolean;
 }
 
 function makeRowId(): string {
@@ -81,6 +86,8 @@ const EMPTY_DRAFT: McpServerDraft = {
   env: [],
   url: "",
   headers: [],
+  authMode: "headers",
+  oauthAuthorized: false,
 };
 
 function draftFromConfig(config: McpServerConfig): McpServerDraft {
@@ -102,6 +109,8 @@ function draftFromConfig(config: McpServerConfig): McpServerDraft {
       })),
       url: "",
       headers: [],
+      authMode: "headers",
+      oauthAuthorized: false,
     };
   }
   return {
@@ -120,6 +129,8 @@ function draftFromConfig(config: McpServerConfig): McpServerDraft {
       sensitive: header.sensitive,
       valueRedacted: header.valueRedacted ?? false,
     })),
+    authMode: transport.oauth ? "oauth" : "headers",
+    oauthAuthorized: transport.oauth?.authorized ?? false,
   };
 }
 
@@ -153,7 +164,11 @@ function configFromDraft(draft: McpServerDraft): McpServerConfig {
     transport: {
       type: draft.transportType,
       url: draft.url.trim(),
-      ...(draft.headers.length > 0 ? { headers: toFields(draft.headers) } : {}),
+      ...(draft.authMode === "oauth"
+        ? { oauth: { authorized: draft.oauthAuthorized } }
+        : draft.headers.length > 0
+          ? { headers: toFields(draft.headers) }
+          : {}),
     },
   };
 }
@@ -263,17 +278,26 @@ function AddMcpServerDialog({
   open,
   onOpenChange,
   initialDraft,
+  environmentId,
+  id,
   onSave,
   onTestConnection,
+  onAuthorize,
+  onRevoke,
   isSaving,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly initialDraft: McpServerDraft;
+  readonly environmentId: EnvironmentId;
+  /** `null` until the server has been saved once — OAuth needs a stable id to key stored credentials against. */
+  readonly id: McpServerId | null;
   readonly onSave: (config: McpServerConfig) => void;
   readonly onTestConnection: (
     config: McpServerConfig,
   ) => Promise<{ status: "ok" | "error"; toolNames: ReadonlyArray<string>; detail?: string }>;
+  readonly onAuthorize: (id: McpServerId) => Promise<void>;
+  readonly onRevoke: (id: McpServerId) => Promise<boolean>;
   readonly isSaving: boolean;
 }) {
   const [draft, setDraft] = useState(initialDraft);
@@ -283,6 +307,9 @@ function AddMcpServerDialog({
     | { status: "ok"; toolNames: ReadonlyArray<string> }
     | { status: "error"; detail?: string }
   >({ status: "idle" });
+  const authorizeState = useAtomValue(
+    mcpServersEnvironment.authorizeState({ environmentId, id: id ?? "" }),
+  );
 
   const handleOpenChange = (next: boolean) => {
     if (next) {
@@ -301,6 +328,21 @@ function AddMcpServerDialog({
         : { status: "error", ...(result.detail ? { detail: result.detail } : {}) },
     );
   };
+
+  const handleAuthorize = async () => {
+    if (id === null) return;
+    await onAuthorize(id);
+  };
+
+  const handleRevoke = async () => {
+    if (id === null) return;
+    if (await onRevoke(id)) {
+      setDraft((current) => ({ ...current, oauthAuthorized: false }));
+    }
+  };
+
+  const isOAuthDraft = draft.transportType !== "stdio" && draft.authMode === "oauth";
+  const isAuthorized = draft.oauthAuthorized || authorizeState.status === "ok";
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -375,12 +417,93 @@ function AddMcpServerDialog({
                 value={draft.url}
                 onChange={(event) => setDraft({ ...draft, url: event.target.value })}
               />
-              <KeyValueRowsEditor
-                title="Headers"
-                addLabel="Add header"
-                rows={draft.headers}
-                onChange={(headers) => setDraft({ ...draft, headers })}
-              />
+              <div className="flex gap-1.5">
+                {(["headers", "oauth"] as const).map((mode) => (
+                  <Button
+                    key={mode}
+                    type="button"
+                    size="sm"
+                    variant={draft.authMode === mode ? "default" : "outline"}
+                    className="h-7 px-3 text-xs"
+                    onClick={() => setDraft({ ...draft, authMode: mode })}
+                  >
+                    {mode === "headers" ? "Headers" : "OAuth"}
+                  </Button>
+                ))}
+              </div>
+              {draft.authMode === "oauth" ? (
+                <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3 text-xs">
+                  {id === null ? (
+                    <span className="text-muted-foreground">
+                      Save this server first, then authorize it here.
+                    </span>
+                  ) : (
+                    <>
+                      <p className="text-muted-foreground">
+                        Authorization requires opening the link below from a browser on the same
+                        machine as this server.
+                      </p>
+                      {authorizeState.status === "awaiting-authorization" ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-muted-foreground">Waiting for authorization —</span>
+                          <a
+                            href={authorizeState.authorizationUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="truncate text-primary underline"
+                          >
+                            {authorizeState.authorizationUrl}
+                          </a>
+                        </div>
+                      ) : null}
+                      {isAuthorized ? (
+                        <span className="flex items-center gap-1.5 text-foreground">
+                          <CheckCircle2Icon className="size-3.5 text-green-600" /> Authorized
+                        </span>
+                      ) : authorizeState.status === "error" ? (
+                        <span className="flex items-center gap-1.5 text-destructive-foreground">
+                          <XCircleIcon className="size-3.5" />
+                          {authorizeState.detail ?? "Authorization failed."}
+                        </span>
+                      ) : null}
+                      <div className="flex gap-2 pt-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void handleAuthorize()}
+                          disabled={
+                            authorizeState.status === "pending" ||
+                            authorizeState.status === "awaiting-authorization"
+                          }
+                        >
+                          {authorizeState.status === "pending" ? (
+                            <Loader2Icon className="size-3.5 animate-spin" />
+                          ) : null}
+                          Authorize
+                        </Button>
+                        {isAuthorized ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void handleRevoke()}
+                          >
+                            Revoke
+                          </Button>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <KeyValueRowsEditor
+                  title="Headers"
+                  addLabel="Add header"
+                  rows={draft.headers}
+                  onChange={(headers) => setDraft({ ...draft, headers })}
+                />
+              )}
             </div>
           )}
 
@@ -417,7 +540,11 @@ function AddMcpServerDialog({
             type="button"
             variant="outline"
             onClick={handleTest}
-            disabled={!isDraftValid(draft) || testState.status === "pending"}
+            disabled={
+              !isDraftValid(draft) ||
+              testState.status === "pending" ||
+              (isOAuthDraft && id === null)
+            }
           >
             Test connection
           </Button>
@@ -445,6 +572,8 @@ export function McpServersSettingsPanel() {
   const upsert = useAtomCommand(mcpServersEnvironment.upsert);
   const remove = useAtomCommand(mcpServersEnvironment.remove);
   const testConnection = useAtomCommand(mcpServersEnvironment.testConnection);
+  const authorize = useAtomCommand(mcpServersEnvironment.authorize);
+  const revoke = useAtomCommand(mcpServersEnvironment.revoke);
 
   const [dialogState, setDialogState] = useState<
     { open: false } | { open: true; id: McpServerId | null; draft: McpServerDraft }
@@ -455,6 +584,7 @@ export function McpServersSettingsPanel() {
 
   const handleSave = async (config: McpServerConfig) => {
     if (!dialogState.open) return;
+    const wasUnsaved = dialogState.id === null;
     setIsSaving(true);
     const result = await upsert({
       environmentId,
@@ -462,9 +592,32 @@ export function McpServersSettingsPanel() {
     });
     setIsSaving(false);
     if (result._tag === "Success") {
-      setDialogState({ open: false });
+      const isFirstOAuthSave =
+        wasUnsaved &&
+        result.value.config.transport.type !== "stdio" &&
+        result.value.config.transport.oauth;
+      // Keep the dialog open on the first save of an OAuth-mode server so
+      // "Authorize" is reachable in the same modal session — OAuth needs the
+      // id this save just assigned, and re-opening the dialog to reach it
+      // would be needless friction.
+      setDialogState(
+        isFirstOAuthSave
+          ? { open: true, id: result.value.id, draft: draftFromConfig(result.value.config) }
+          : { open: false },
+      );
       list.refresh();
     }
+  };
+
+  const handleAuthorize = async (id: McpServerId) => {
+    await authorize({ environmentId, input: { id } });
+    list.refresh();
+  };
+
+  const handleRevoke = async (id: McpServerId): Promise<boolean> => {
+    const result = await revoke({ environmentId, input: { id } });
+    if (result._tag === "Success") list.refresh();
+    return result._tag === "Success";
   };
 
   const handleTestConnection = async (
@@ -593,8 +746,12 @@ export function McpServersSettingsPanel() {
             if (!open) setDialogState({ open: false });
           }}
           initialDraft={dialogState.draft}
+          environmentId={environmentId}
+          id={dialogState.id}
           onSave={(config) => void handleSave(config)}
           onTestConnection={handleTestConnection}
+          onAuthorize={handleAuthorize}
+          onRevoke={handleRevoke}
           isSaving={isSaving}
         />
       ) : null}

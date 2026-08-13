@@ -79,6 +79,7 @@ import { type ElementContextDraft } from "../../lib/elementContext";
 import { ComposerPendingElementContexts } from "./ComposerPendingElementContexts";
 import { ComposerPendingReviewComments } from "./ComposerPendingReviewComments";
 import { ComposerPreviewAnnotationCards } from "./ComposerPreviewAnnotationCards";
+import { ImageAnnotationEditor } from "./ImageAnnotationEditor";
 import {
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
@@ -102,7 +103,7 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
-import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
+
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, randomUUID } from "~/lib/utils";
 import { Separator } from "../ui/separator";
@@ -593,7 +594,6 @@ export interface ChatComposerProps {
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
   setThreadError: (threadId: ThreadId | null, error: string | null) => void;
-  onExpandImage: (preview: ExpandedImagePreview) => void;
 }
 
 // --------------------------------------------------------------------------
@@ -664,7 +664,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     focusComposer,
     scheduleComposerFocus,
     setThreadError,
-    onExpandImage,
   } = props;
   const isSendDisabled = sendDisabledReason !== null;
 
@@ -683,6 +682,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
+  const replaceComposerDraftImage = useComposerDraftStore((store) => store.replaceImage);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
   const insertComposerDraftTerminalContext = useComposerDraftStore(
     (store) => store.insertTerminalContext,
@@ -949,6 +949,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [composerMenuAnchor, setComposerMenuAnchor] = useState<HTMLDivElement | null>(null);
   const [isStashMenuOpen, setIsStashMenuOpen] = useState(false);
+  const [annotatingImageId, setAnnotatingImageId] = useState<string | null>(null);
   const [stashPulse, setStashPulse] = useState<{ key: number; active: boolean }>({
     key: 0,
     active: false,
@@ -1275,6 +1276,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [composerDraftTarget, removeComposerDraftImage],
   );
 
+  const replaceComposerImageInDraft = useCallback(
+    (imageId: string, nextImage: ComposerImageAttachment) => {
+      replaceComposerDraftImage(composerDraftTarget, imageId, nextImage);
+    },
+    [composerDraftTarget, replaceComposerDraftImage],
+  );
+
   const removeComposerTerminalContextFromDraft = useCallback(
     (contextId: string) => {
       const contextIndex = composerTerminalContexts.findIndex(
@@ -1401,6 +1409,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     setComposerTrigger(detectComposerTrigger(promptRef.current, promptRef.current.length));
     dragDepthRef.current = 0;
     setIsDragOverComposer(false);
+    setAnnotatingImageId(null);
   }, [draftId, activeThreadId, promptRef]);
 
   // ------------------------------------------------------------------
@@ -2365,7 +2374,42 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   };
 
   const removeComposerImage = (imageId: string) => {
+    if (annotatingImageId === imageId) {
+      setAnnotatingImageId(null);
+    }
     removeComposerImageFromDraft(imageId);
+  };
+
+  const annotatingImage =
+    annotatingImageId === null
+      ? null
+      : (composerImages.find((image) => image.id === annotatingImageId) ?? null);
+
+  const applyAnnotatedComposerImage = async (file: File) => {
+    if (!annotatingImage) return;
+    const compressed = await compressImageToByteLimit(file, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES);
+    if (!compressed.ok) {
+      toastManager.add({
+        type: "error",
+        title:
+          compressed.reason === "unreadable"
+            ? "Could not read the marked-up image."
+            : "The marked-up image is too large to attach.",
+      });
+      return;
+    }
+    const previewUrl = URL.createObjectURL(compressed.file);
+    replaceComposerImageInDraft(annotatingImage.id, {
+      type: "image",
+      id: annotatingImage.id,
+      name: compressed.file.name || annotatingImage.name,
+      mimeType: compressed.file.type,
+      sizeBytes: compressed.file.size,
+      previewUrl,
+      file: compressed.file,
+    });
+    setAnnotatingImageId(null);
+    scheduleComposerFocus();
   };
 
   // ------------------------------------------------------------------
@@ -2904,10 +2948,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   onRemove={(annotationId) =>
                     removeComposerDraftPreviewAnnotation(composerDraftTarget, annotationId)
                   }
-                  onExpandImage={(imageId) => {
-                    const preview = buildExpandedImagePreview(composerImages, imageId);
-                    if (preview) onExpandImage(preview);
-                  }}
+                  onMarkUpImage={(imageId) => setAnnotatingImageId(imageId)}
                   className="mb-3"
                 />
               )}
@@ -2961,19 +3002,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         {image.previewUrl ? (
                           <button
                             type="button"
-                            className="h-full w-full cursor-zoom-in"
-                            aria-label={`Preview ${image.name}`}
-                            onClick={() => {
-                              const preview = buildExpandedImagePreview(composerImages, image.id);
-                              if (!preview) return;
-                              onExpandImage(preview);
-                            }}
+                            className="h-full w-full cursor-pointer"
+                            aria-label={`Mark up ${image.name}`}
+                            onClick={() => setAnnotatingImageId(image.id)}
                           >
                             <img
                               src={image.previewUrl}
                               alt={image.name}
                               className="h-full w-full object-cover"
                             />
+                            <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-0.5 bg-black/60 py-0.5 text-[10px] font-medium text-white">
+                              <PenLineIcon className="size-2.5" />
+                              Draw
+                            </span>
                           </button>
                         ) : (
                           <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-secondary-label">
@@ -3210,6 +3251,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           )}
         </div>
       </div>
+      {annotatingImage
+        ? createPortal(
+            <ImageAnnotationEditor
+              image={annotatingImage}
+              onCancel={() => setAnnotatingImageId(null)}
+              onApply={applyAnnotatedComposerImage}
+            />,
+            document.body,
+          )
+        : null}
     </form>
   );
 });

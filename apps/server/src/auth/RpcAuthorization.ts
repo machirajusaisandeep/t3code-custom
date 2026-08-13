@@ -62,6 +62,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.mcpServersTestConnection]: AuthOrchestrationReadScope,
   [WS_METHODS.mcpServersUpsert]: AuthOrchestrationOperateScope,
   [WS_METHODS.mcpServersRemove]: AuthOrchestrationOperateScope,
+  [WS_METHODS.mcpServersOAuthAuthorize]: AuthOrchestrationOperateScope,
+  [WS_METHODS.mcpServersOAuthRevoke]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectsListEntries]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsReadFile]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsSearchContents]: AuthOrchestrationReadScope,

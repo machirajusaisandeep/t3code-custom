@@ -1,12 +1,39 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as ServerConfig from "../config.ts";
+import * as ExternalLauncher from "../process/externalLauncher.ts";
 import * as ServerSettingsModule from "../serverSettings.ts";
+import * as McpServerOAuthTokens from "./McpServerOAuthTokens.ts";
 import * as McpServerRegistry from "./McpServerRegistry.ts";
 
+const stubExternalLauncherLayer = Layer.succeed(
+  ExternalLauncher.ExternalLauncher,
+  ExternalLauncher.ExternalLauncher.of({
+    resolveAvailableEditors: () => Effect.succeed([]),
+    launchBrowser: () => Effect.void,
+    launchEditor: () => Effect.void,
+  }),
+);
+
 const makeRegistryLayer = () =>
-  McpServerRegistry.layer.pipe(Layer.provide(ServerSettingsModule.layerTest()));
+  McpServerRegistry.layer.pipe(
+    Layer.provide(ServerSettingsModule.layerTest()),
+    Layer.provide(stubExternalLauncherLayer),
+    Layer.provideMerge(ServerSecretStore.layer),
+    Layer.provideMerge(
+      Layer.fresh(
+        ServerConfig.layerTest(process.cwd(), {
+          prefix: "t3code-mcp-server-registry-test-",
+        }),
+      ),
+    ),
+    Layer.provideMerge(NodeServices.layer),
+  );
 
 it.effect("upserts, lists, and removes MCP servers", () =>
   Effect.gen(function* () {
@@ -50,5 +77,67 @@ it.effect("testConnection reports an error result for an unreachable server", ()
       },
     });
     assert.equal(result.status, "error");
+  }).pipe(Effect.provide(makeRegistryLayer())),
+);
+
+it.effect("clears stored OAuth secrets when an OAuth-configured server is removed", () =>
+  Effect.gen(function* () {
+    const registry = yield* McpServerRegistry.McpServerRegistry;
+    const secrets = yield* ServerSecretStore.ServerSecretStore;
+    const now = yield* Clock.currentTimeMillis;
+
+    const created = yield* registry.upsert({
+      config: {
+        name: "OAuth Server",
+        enabled: true,
+        transport: { type: "http", url: "https://example.com/mcp", oauth: { authorized: true } },
+      },
+    });
+    yield* McpServerOAuthTokens.writeTokens(secrets, created.id, {
+      accessToken: "fake-access-token",
+      refreshToken: "fake-refresh-token",
+      expiresAtMs: now + 60_000,
+    });
+    assert.isDefined(yield* McpServerOAuthTokens.readTokens(secrets, created.id));
+
+    yield* registry.remove({ id: created.id });
+
+    assert.isUndefined(yield* McpServerOAuthTokens.readTokens(secrets, created.id));
+  }).pipe(Effect.provide(makeRegistryLayer())),
+);
+
+it.effect("clears stored OAuth secrets when an OAuth-configured server's URL changes", () =>
+  Effect.gen(function* () {
+    const registry = yield* McpServerRegistry.McpServerRegistry;
+    const secrets = yield* ServerSecretStore.ServerSecretStore;
+    const now = yield* Clock.currentTimeMillis;
+
+    const created = yield* registry.upsert({
+      config: {
+        name: "OAuth Server",
+        enabled: true,
+        transport: { type: "http", url: "https://example.com/mcp", oauth: { authorized: true } },
+      },
+    });
+    yield* McpServerOAuthTokens.writeTokens(secrets, created.id, {
+      accessToken: "fake-access-token",
+      expiresAtMs: now + 60_000,
+    });
+    assert.isDefined(yield* McpServerOAuthTokens.readTokens(secrets, created.id));
+
+    yield* registry.upsert({
+      id: created.id,
+      config: {
+        name: "OAuth Server",
+        enabled: true,
+        transport: {
+          type: "http",
+          url: "https://different.example.com/mcp",
+          oauth: { authorized: true },
+        },
+      },
+    });
+
+    assert.isUndefined(yield* McpServerOAuthTokens.readTokens(secrets, created.id));
   }).pipe(Effect.provide(makeRegistryLayer())),
 );
