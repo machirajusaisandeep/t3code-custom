@@ -43,6 +43,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   LayoutGridIcon,
+  ListChecksIcon,
   GitBranchIcon,
   MessageSquareIcon,
   PinIcon,
@@ -130,15 +131,21 @@ import {
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   planPinnedReorder,
+  projectScopeEmptyLabel,
+  projectScopeTriggerLabel,
+  pruneProjectScopeKeys,
   resolveAdjacentThreadId,
+  resolveProjectScopeMemberKeys,
   resolveSettledTimestamp,
   resolveSidebarThreadStatus,
   searchSidebarThreadsByTitle,
   resolveWorkingStartedAt,
+  shouldShowProjectSelectMode,
   sortLogicalProjectsForSidebar,
   sortPinnedThreadsForSidebar,
   sortSettledThreadsForSidebar,
   sortThreadsForSidebar,
+  toggleProjectScopeKey,
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
@@ -1792,32 +1799,43 @@ export default function Sidebar() {
     [],
   );
 
-  // Project scope: one menu above the list. Scoping filters the list without
-  // making the header width depend on the number or length of project names.
-  const [projectScopeKey, setProjectScopeKey] = useState<string | null>(null);
-  const scopedProjectGroup = useMemo(
-    () =>
-      projectScopeKey === null
-        ? null
-        : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null),
-    [projectGroups, projectScopeKey],
+  // Project scope: one menu above the list. Empty keys means every project.
+  // Select-projects mode turns the radio list into checkboxes so two (or
+  // more) projects can stay in view at once.
+  const [projectScopeKeys, setProjectScopeKeys] = useState<string[]>([]);
+  const [projectSelectMode, setProjectSelectMode] = useState(false);
+  const availableProjectScopeKeys = useMemo(
+    () => projectGroups.map((project) => project.projectKey),
+    [projectGroups],
   );
+  const selectedProjectScopeKeys = useMemo(
+    () => pruneProjectScopeKeys(projectScopeKeys, availableProjectScopeKeys),
+    [availableProjectScopeKeys, projectScopeKeys],
+  );
+  const isProjectSelectMode = shouldShowProjectSelectMode(
+    projectSelectMode,
+    selectedProjectScopeKeys.length,
+  );
+  const scopedProjectGroup =
+    selectedProjectScopeKeys.length === 1
+      ? (projectGroups.find((project) => project.projectKey === selectedProjectScopeKeys[0]) ??
+        null)
+      : null;
   const scopedProjectKeys = useMemo(
-    () =>
-      scopedProjectGroup === null
-        ? null
-        : new Set(
-            scopedProjectGroup.memberProjectRefs.map(
-              (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
-            ),
-          ),
-    [scopedProjectGroup],
+    () => resolveProjectScopeMemberKeys(selectedProjectScopeKeys, projectGroups),
+    [projectGroups, selectedProjectScopeKeys],
   );
+  const projectScopeLabel = projectScopeTriggerLabel({
+    selectedKeys: selectedProjectScopeKeys,
+    groups: projectGroups,
+  });
   useEffect(() => {
-    if (projectScopeKey !== null && scopedProjectGroup === null) {
-      setProjectScopeKey(null);
+    if (projectScopeKeys.length === selectedProjectScopeKeys.length) return;
+    setProjectScopeKeys(selectedProjectScopeKeys);
+    if (selectedProjectScopeKeys.length <= 1) {
+      setProjectSelectMode(false);
     }
-  }, [projectScopeKey, scopedProjectGroup]);
+  }, [projectScopeKeys.length, selectedProjectScopeKeys]);
   // Count-only subscription: the parent needs "are there draft rows" for the
   // empty state, while SidebarDraftBlock owns the per-keystroke content
   // subscription. Selecting a number keeps typing in a draft composer from
@@ -1848,7 +1866,7 @@ export default function Sidebar() {
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
     clearSelection();
-  }, [clearSelection, projectScopeKey]);
+  }, [clearSelection, selectedProjectScopeKeys]);
 
   const handleProjectSettings = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
@@ -1998,7 +2016,8 @@ export default function Sidebar() {
   // filter context changes so a scope/search flip never inherits a deep
   // page state.
   const [settledVisibleCount, setSettledVisibleCount] = useState(SETTLED_TAIL_INITIAL_COUNT);
-  const settledResetKey = projectScopeKey ?? "all";
+  const settledResetKey =
+    selectedProjectScopeKeys.length === 0 ? "all" : selectedProjectScopeKeys.join("\0");
   const lastSettledResetKeyRef = useRef(settledResetKey);
   if (lastSettledResetKeyRef.current !== settledResetKey) {
     lastSettledResetKeyRef.current = settledResetKey;
@@ -3263,7 +3282,11 @@ export default function Sidebar() {
                   <MenuTrigger
                     render={
                       <SidebarMenuButton
-                        aria-label="Filter threads by project"
+                        aria-label={
+                          selectedProjectScopeKeys.length === 0
+                            ? "Filter threads by project"
+                            : `Filter threads by project, ${projectScopeLabel}`
+                        }
                         className="min-w-0 flex-1 ps-[calc(var(--sidebar-row-content-inset)-1px)] focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                       />
                     }
@@ -3278,58 +3301,151 @@ export default function Sidebar() {
                     ) : (
                       <FolderIcon className="size-4 shrink-0" />
                     )}
-                    <span className="min-w-0 flex-1 truncate">
-                      {scopedProjectGroup?.displayName ?? "All projects"}
-                    </span>
+                    <span className="min-w-0 flex-1 truncate">{projectScopeLabel}</span>
                     <ChevronDownIcon className="-mr-px size-4 shrink-0" />
                   </MenuTrigger>
                   <MenuPopup align="start" className="w-(--anchor-width)">
-                    <MenuRadioGroup
-                      value={projectScopeKey ?? "all"}
-                      onValueChange={(value) =>
-                        setProjectScopeKey(value === "all" ? null : (value as string))
-                      }
-                    >
-                      <MenuRadioItem
-                        value="all"
-                        closeOnClick
-                        className="h-8 min-h-8 px-1 py-0 text-sm font-medium [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:items-center [&>span:last-child]:gap-2"
-                      >
-                        <FolderIcon className="size-4 shrink-0" />
-                        <span className="min-w-0 truncate text-sm">All projects</span>
-                      </MenuRadioItem>
-                      {projectGroups.map((project) => {
-                        const scopeKey = project.projectKey;
-                        return (
-                          <MenuRadioItem
-                            key={scopeKey}
-                            value={scopeKey}
-                            closeOnClick
-                            className="h-8 min-h-8 px-1 py-0 text-sm font-medium [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:items-center [&>span:last-child]:gap-2"
+                    {isProjectSelectMode ? (
+                      <>
+                        <MenuItem
+                          closeOnClick
+                          className="h-8 min-h-8 px-1 py-0 text-sm font-medium"
+                          onClick={() => {
+                            setProjectScopeKeys([]);
+                            setProjectSelectMode(false);
+                          }}
+                        >
+                          <FolderIcon className="size-4 shrink-0" />
+                          <span className="min-w-0 truncate text-sm">All projects</span>
+                        </MenuItem>
+                        {projectGroups.length > 1 ? (
+                          <MenuItem
+                            closeOnClick={false}
+                            aria-pressed
+                            className="h-8 min-h-8 bg-foreground/[0.08] px-1 py-0 text-sm font-medium"
+                            onClick={() => {
+                              if (selectedProjectScopeKeys.length <= 1) {
+                                setProjectSelectMode(false);
+                              }
+                            }}
                           >
-                            <ProjectFavicon
-                              environmentId={project.environmentId}
-                              cwd={project.workspaceRoot}
-                              faviconPath={project.faviconPath}
-                              className="size-4 shrink-0"
-                            />
-                            <span className="min-w-0 truncate text-sm">{project.displayName}</span>
-                            <button
-                              type="button"
-                              aria-label={`Project settings for ${project.displayName}`}
-                              title={`Project settings for ${project.displayName}`}
-                              className="ml-auto inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                              onPointerDown={(event) => event.stopPropagation()}
-                              onClick={(event) => {
-                                void handleProjectSettings(event, project);
+                            <ListChecksIcon className="size-4 shrink-0" />
+                            <span className="min-w-0 truncate text-sm">Select projects</span>
+                          </MenuItem>
+                        ) : null}
+                        {projectGroups.map((project) => {
+                          const scopeKey = project.projectKey;
+                          const checked = selectedProjectScopeKeys.includes(scopeKey);
+                          return (
+                            <MenuItem
+                              key={scopeKey}
+                              closeOnClick={false}
+                              aria-checked={checked}
+                              role="menuitemcheckbox"
+                              className="h-8 min-h-8 px-1 py-0 text-sm font-medium"
+                              onClick={() => {
+                                setProjectScopeKeys((current) =>
+                                  toggleProjectScopeKey(current, scopeKey),
+                                );
                               }}
                             >
-                              <SettingsIcon className="size-3.5" />
-                            </button>
-                          </MenuRadioItem>
-                        );
-                      })}
-                    </MenuRadioGroup>
+                              <span
+                                aria-hidden
+                                className={cn(
+                                  "flex size-4 shrink-0 items-center justify-center rounded-[0.25rem] border border-input bg-background",
+                                  checked && "border-primary bg-primary text-primary-foreground",
+                                )}
+                              >
+                                {checked ? <CheckIcon className="size-3" /> : null}
+                              </span>
+                              <ProjectFavicon
+                                environmentId={project.environmentId}
+                                cwd={project.workspaceRoot}
+                                faviconPath={project.faviconPath}
+                                className="size-4 shrink-0"
+                              />
+                              <span className="min-w-0 flex-1 truncate text-sm">
+                                {project.displayName}
+                              </span>
+                              <button
+                                type="button"
+                                aria-label={`Project settings for ${project.displayName}`}
+                                title={`Project settings for ${project.displayName}`}
+                                className="ml-auto inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  void handleProjectSettings(event, project);
+                                }}
+                              >
+                                <SettingsIcon className="size-3.5" />
+                              </button>
+                            </MenuItem>
+                          );
+                        })}
+                      </>
+                    ) : (
+                      <MenuRadioGroup
+                        value={selectedProjectScopeKeys[0] ?? "all"}
+                        onValueChange={(value) => {
+                          setProjectSelectMode(false);
+                          setProjectScopeKeys(value === "all" ? [] : [value as string]);
+                        }}
+                      >
+                        <MenuRadioItem
+                          value="all"
+                          closeOnClick
+                          className="h-8 min-h-8 px-1 py-0 text-sm font-medium [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:items-center [&>span:last-child]:gap-2"
+                        >
+                          <FolderIcon className="size-4 shrink-0" />
+                          <span className="min-w-0 truncate text-sm">All projects</span>
+                        </MenuRadioItem>
+                        {projectGroups.length > 1 ? (
+                          <MenuItem
+                            closeOnClick={false}
+                            className="h-8 min-h-8 px-1 py-0 text-sm font-medium"
+                            onClick={() => {
+                              setProjectSelectMode(true);
+                            }}
+                          >
+                            <ListChecksIcon className="size-4 shrink-0" />
+                            <span className="min-w-0 truncate text-sm">Select projects</span>
+                          </MenuItem>
+                        ) : null}
+                        {projectGroups.map((project) => {
+                          const scopeKey = project.projectKey;
+                          return (
+                            <MenuRadioItem
+                              key={scopeKey}
+                              value={scopeKey}
+                              closeOnClick
+                              className="h-8 min-h-8 px-1 py-0 text-sm font-medium [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:items-center [&>span:last-child]:gap-2"
+                            >
+                              <ProjectFavicon
+                                environmentId={project.environmentId}
+                                cwd={project.workspaceRoot}
+                                faviconPath={project.faviconPath}
+                                className="size-4 shrink-0"
+                              />
+                              <span className="min-w-0 truncate text-sm">
+                                {project.displayName}
+                              </span>
+                              <button
+                                type="button"
+                                aria-label={`Project settings for ${project.displayName}`}
+                                title={`Project settings for ${project.displayName}`}
+                                className="ml-auto inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  void handleProjectSettings(event, project);
+                                }}
+                              >
+                                <SettingsIcon className="size-3.5" />
+                              </button>
+                            </MenuRadioItem>
+                          );
+                        })}
+                      </MenuRadioGroup>
+                    )}
                     <MenuSeparator />
                     <MenuItem
                       onClick={() =>
@@ -3709,10 +3825,11 @@ export default function Sidebar() {
                     Add project
                   </button>
                 </>
-              ) : scopedProjectGroup ? (
-                `No threads in ${scopedProjectGroup.displayName} yet`
               ) : (
-                "No threads yet"
+                projectScopeEmptyLabel({
+                  selectedKeys: selectedProjectScopeKeys,
+                  groups: projectGroups,
+                })
               )}
             </div>
           ) : null}

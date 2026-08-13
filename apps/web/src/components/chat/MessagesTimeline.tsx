@@ -153,6 +153,7 @@ interface TimelineRowSharedState {
   reviewStartingPlanId: string | null;
   sourceBusy: boolean;
   onReviewPlan: ((planId: string) => void) | undefined;
+  onOpenPlan: ((planId: string) => void) | undefined;
   onOpenPlanReview: ((reviewThreadId: ThreadId) => void) | undefined;
   onRevisePlan: ((input: { planId: string; feedback: string }) => void) | undefined;
 }
@@ -257,6 +258,7 @@ interface MessagesTimelineProps {
   reviewStartingPlanId?: string | null;
   sourceBusy?: boolean;
   onReviewPlan?: ((planId: string) => void) | undefined;
+  onOpenPlan?: ((planId: string) => void) | undefined;
   onOpenPlanReview?: ((reviewThreadId: ThreadId) => void) | undefined;
   onRevisePlan?: ((input: { planId: string; feedback: string }) => void) | undefined;
 }
@@ -303,6 +305,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   reviewStartingPlanId = null,
   sourceBusy = false,
   onReviewPlan,
+  onOpenPlan,
   onOpenPlanReview,
   onRevisePlan,
 }: MessagesTimelineProps) {
@@ -547,6 +550,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       reviewStartingPlanId,
       sourceBusy,
       onReviewPlan,
+      onOpenPlan,
       onOpenPlanReview,
       onRevisePlan,
     }),
@@ -570,6 +574,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       reviewStartingPlanId,
       sourceBusy,
       onReviewPlan,
+      onOpenPlan,
       onOpenPlanReview,
       onRevisePlan,
     ],
@@ -1224,6 +1229,7 @@ function ProposedPlanTimelineRow({
         reviewStarting={ctx.reviewStartingPlanId === row.proposedPlan.id}
         sourceBusy={ctx.sourceBusy}
         onReviewPlan={ctx.onReviewPlan}
+        onOpenPlan={ctx.onOpenPlan}
         onOpenReview={ctx.onOpenPlanReview}
         onRevisePlan={ctx.onRevisePlan}
       />

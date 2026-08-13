@@ -46,7 +46,8 @@ icon means subagents or a watch loop are alive; open the thread's **Agents** pan
 are doing.
 
 The **⋯** menu on a card opens, pins, settles, snoozes, archives, or deletes the thread — the same
-actions the sidebar offers.
+actions the sidebar offers. **Open in new window** (also the pop-out button on hover, or
+Ctrl/Cmd-click / middle-click) keeps the board where it is and opens that thread in another window.
 
 ## Filtering
 

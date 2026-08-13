@@ -136,4 +136,34 @@ describe("buildBootstrapInput", () => {
     expect(result.text).toContain("Attached image");
     expect(result.text).toContain("screenshot.png");
   });
+
+  it("captures user HAR attachment context in transcript blocks", () => {
+    const result = buildBootstrapInput(
+      [
+        {
+          id: messageId("u-har"),
+          role: "user",
+          text: "",
+          attachments: [
+            {
+              type: "file",
+              id: "har-1",
+              name: "network.har",
+              mimeType: "application/json",
+              sizeBytes: 2_048,
+            },
+          ],
+          createdAt: "2026-02-09T00:00:00.000Z",
+          turnId: null,
+          updatedAt: "2026-02-09T00:00:00.000Z",
+          streaming: false,
+        },
+      ],
+      "Inspect this capture",
+      1_500,
+    );
+
+    expect(result.text).toContain("Attached file");
+    expect(result.text).toContain("network.har");
+  });
 });

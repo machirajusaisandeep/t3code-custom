@@ -41,6 +41,7 @@ function toChangeRequest(summary: GitHubCli.GitHubPullRequestSummary): ChangeReq
       : {}),
     ...(summary.author !== undefined ? { author: summary.author } : {}),
     ...(summary.assignees !== undefined ? { assignees: summary.assignees } : {}),
+    ...(summary.checks !== undefined ? { checks: summary.checks } : {}),
   };
 }
 

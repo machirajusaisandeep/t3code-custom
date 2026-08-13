@@ -4,7 +4,12 @@ import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { PositiveInt, TrimmedNonEmptyString } from "@t3tools/contracts";
+import {
+  PositiveInt,
+  TrimmedNonEmptyString,
+  type ChangeRequestCheck,
+  type ChangeRequestCheckStatus,
+} from "@t3tools/contracts";
 import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
 
 export interface NormalizedGitHubPullRequestRecord {
@@ -20,6 +25,7 @@ export interface NormalizedGitHubPullRequestRecord {
   readonly headRepositoryOwnerLogin?: string | null;
   readonly author?: string | null;
   readonly assignees?: ReadonlyArray<string>;
+  readonly checks?: ReadonlyArray<ChangeRequestCheck>;
 }
 
 const GitHubActorSchema = Schema.Struct({
@@ -57,6 +63,18 @@ const GitHubPullRequestSchema = Schema.Struct({
   ),
   author: Schema.optional(Schema.NullOr(GitHubActorSchema)),
   assignees: Schema.optional(Schema.NullOr(Schema.Array(GitHubActorSchema))),
+  statusCheckRollup: Schema.optional(Schema.NullOr(Schema.Array(Schema.Unknown))),
+});
+
+const GitHubStatusCheckSchema = Schema.Struct({
+  name: Schema.optional(Schema.NullOr(Schema.String)),
+  context: Schema.optional(Schema.NullOr(Schema.String)),
+  workflowName: Schema.optional(Schema.NullOr(Schema.String)),
+  status: Schema.optional(Schema.NullOr(Schema.String)),
+  conclusion: Schema.optional(Schema.NullOr(Schema.String)),
+  state: Schema.optional(Schema.NullOr(Schema.String)),
+  detailsUrl: Schema.optional(Schema.NullOr(Schema.String)),
+  targetUrl: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 function trimOptionalString(value: string | null | undefined): string | null {
@@ -79,6 +97,82 @@ function normalizeGitHubPullRequestState(input: {
     return "closed";
   }
   return "open";
+}
+
+function normalizeCheckStatus(input: {
+  readonly status?: string | null | undefined;
+  readonly conclusion?: string | null | undefined;
+  readonly state?: string | null | undefined;
+}): ChangeRequestCheckStatus | null {
+  const conclusion = input.conclusion?.trim().toUpperCase();
+  switch (conclusion) {
+    case "SUCCESS":
+      return "pass";
+    case "FAILURE":
+    case "TIMED_OUT":
+    case "ACTION_REQUIRED":
+    case "STARTUP_FAILURE":
+      return "fail";
+    case "SKIPPED":
+    case "NEUTRAL":
+      return "skipping";
+    case "CANCELLED":
+      return "cancel";
+    case "STALE":
+      return "fail";
+  }
+
+  switch (input.state?.trim().toUpperCase()) {
+    case "SUCCESS":
+      return "pass";
+    case "FAILURE":
+    case "ERROR":
+      return "fail";
+    case "PENDING":
+    case "EXPECTED":
+      return "pending";
+  }
+
+  switch (input.status?.trim().toUpperCase()) {
+    case "COMPLETED":
+      return "pending";
+    case "QUEUED":
+    case "IN_PROGRESS":
+    case "REQUESTED":
+    case "WAITING":
+      return "pending";
+  }
+
+  return null;
+}
+
+function normalizeGitHubChecks(
+  rawChecks: ReadonlyArray<unknown> | null | undefined,
+): ReadonlyArray<ChangeRequestCheck> | undefined {
+  if (!rawChecks) return undefined;
+
+  const checks: ChangeRequestCheck[] = [];
+  for (const rawCheck of rawChecks) {
+    const decoded = Schema.decodeUnknownExit(GitHubStatusCheckSchema)(rawCheck);
+    if (Exit.isFailure(decoded)) continue;
+
+    const name =
+      trimOptionalString(decoded.value.name) ?? trimOptionalString(decoded.value.context);
+    const status = normalizeCheckStatus(decoded.value);
+    if (name === null || status === null) continue;
+
+    const workflow = trimOptionalString(decoded.value.workflowName);
+    const url =
+      trimOptionalString(decoded.value.detailsUrl) ?? trimOptionalString(decoded.value.targetUrl);
+    checks.push({
+      name,
+      status,
+      ...(workflow ? { workflow } : {}),
+      ...(url ? { url } : {}),
+    });
+  }
+
+  return checks.length > 0 ? checks : undefined;
 }
 
 function actorHandle(
@@ -104,6 +198,7 @@ function normalizeGitHubPullRequestRecord(
   const assignees = (raw.assignees ?? [])
     .map(actorHandle)
     .filter((handle): handle is string => handle !== null);
+  const checks = normalizeGitHubChecks(raw.statusCheckRollup);
 
   return {
     number: raw.number,
@@ -120,6 +215,7 @@ function normalizeGitHubPullRequestRecord(
     ...(headRepositoryOwnerLogin ? { headRepositoryOwnerLogin } : {}),
     ...(author ? { author } : {}),
     ...(assignees.length > 0 ? { assignees } : {}),
+    ...(checks ? { checks } : {}),
   };
 }
 

@@ -8,6 +8,7 @@
  */
 import type {
   ChangeRequest,
+  ChangeRequestCheck,
   EnvironmentId,
   ModelSelection,
   ProjectId,
@@ -15,7 +16,15 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
-import { ExternalLinkIcon, RefreshCwIcon, SearchIcon, SparklesIcon } from "lucide-react";
+import {
+  CheckCircle2Icon,
+  CircleXIcon,
+  ExternalLinkIcon,
+  LoaderCircleIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  SparklesIcon,
+} from "lucide-react";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import { useCallback, useMemo, useState } from "react";
@@ -89,6 +98,78 @@ function reviewStatusToneClass(status: CodeReviewStatus): string {
     case "stopped":
       return "text-muted-foreground";
   }
+}
+
+function checkStatusToneClass(status: ChangeRequestCheck["status"]): string {
+  switch (status) {
+    case "pass":
+      return "text-success";
+    case "fail":
+      return "text-destructive";
+    case "pending":
+      return "text-info";
+    case "skipping":
+    case "cancel":
+      return "text-muted-foreground";
+  }
+}
+
+function CheckStatusIcon({ status }: { status: ChangeRequestCheck["status"] }) {
+  if (status === "pass") return <CheckCircle2Icon aria-hidden className="size-3 shrink-0" />;
+  if (status === "fail") return <CircleXIcon aria-hidden className="size-3 shrink-0" />;
+  if (status === "pending") {
+    return <LoaderCircleIcon aria-hidden className="size-3 shrink-0" />;
+  }
+  return <span aria-hidden className="size-2 shrink-0 rounded-full bg-current" />;
+}
+
+function ChangeRequestChecks({
+  checks,
+  openPrLink,
+}: {
+  checks: ReadonlyArray<ChangeRequestCheck>;
+  openPrLink: ReturnType<typeof useOpenPrLink>;
+}) {
+  if (checks.length === 0) return null;
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]"
+      aria-label="CI checks"
+    >
+      <span className="text-muted-foreground">Checks:</span>
+      {checks.map((check) => {
+        const label =
+          check.workflow && check.workflow !== check.name
+            ? `${check.workflow} · ${check.name}`
+            : check.name;
+        const content = (
+          <span
+            className={cn("flex max-w-full items-center gap-1", checkStatusToneClass(check.status))}
+          >
+            <CheckStatusIcon status={check.status} />
+            <span className="max-w-48 truncate">{label}</span>
+          </span>
+        );
+        if (!check.url) {
+          return <span key={`${label}-${check.name}`}>{content}</span>;
+        }
+        return (
+          <button
+            key={`${label}-${check.name}`}
+            type="button"
+            title={`${check.name} · ${check.status}`}
+            className="max-w-full rounded-sm hover:bg-accent focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+            onClick={(event) => {
+              openPrLink(event, check.url!);
+            }}
+          >
+            {content}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function ReviewStatusChip({ status, onOpen }: { status: CodeReviewStatus; onOpen: () => void }) {
@@ -172,6 +253,7 @@ function ChangeRequestRow({
           Assigned to {assignees.join(", ")}
         </p>
       ) : null}
+      <ChangeRequestChecks checks={changeRequest.checks ?? []} openPrLink={openPrLink} />
       {/*
         Not hover-gated: a review running in the background is exactly the
         thing you want to see without pointing at the row.

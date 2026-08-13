@@ -42,7 +42,11 @@ import {
   THREAD_SORT_OPTIONS,
   useHomeListOptions,
 } from "../home/home-list-options";
-import { buildHomeListFilterMenu } from "../home/home-list-filter-menu";
+import {
+  buildHomeListFilterMenu,
+  shouldShowProjectSelectMode,
+  toggleProjectScopeKey,
+} from "../home/home-list-filter-menu";
 import {
   buildHomeListLayout,
   DEFAULT_GROUP_DISPLAY_STATE,
@@ -260,7 +264,8 @@ function ThreadNavigationSidebarPane(
     () => new Set(threadSearch.matches.map(threadSearchMatchKey)),
     [threadSearch.matches],
   );
-  const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
+  const [selectedProjectKeys, setSelectedProjectKeys] = useState<string[]>([]);
+  const [projectSelectMode, setProjectSelectMode] = useState(false);
   const projectScopes = useMemo(
     () =>
       buildHomeProjectScopes({
@@ -293,31 +298,32 @@ function ThreadNavigationSidebarPane(
       ),
     [projectScopes],
   );
-  const selectedProjectScope = useMemo(
-    () =>
-      selectedProjectKey === null
-        ? null
-        : (projectScopes.find((scope) => scope.key === selectedProjectKey) ?? null),
-    [projectScopes, selectedProjectKey],
-  );
+  const selectedProjectScopes = useMemo(() => {
+    if (selectedProjectKeys.length === 0) return [];
+    const selected = new Set(selectedProjectKeys);
+    return projectScopes.filter((scope) => selected.has(scope.key));
+  }, [projectScopes, selectedProjectKeys]);
+  const selectedProjectScope = selectedProjectScopes[0] ?? null;
   useEffect(() => {
-    if (
-      selectedProjectKey !== null &&
-      !projectFilterOptions.some((project) => project.key === selectedProjectKey)
-    ) {
-      setSelectedProjectKey(null);
+    const available = new Set(projectFilterOptions.map((project) => project.key));
+    const nextKeys = selectedProjectKeys.filter((key) => available.has(key));
+    if (nextKeys.length !== selectedProjectKeys.length) {
+      setSelectedProjectKeys(nextKeys);
+      if (nextKeys.length <= 1) setProjectSelectMode(false);
     }
-  }, [projectFilterOptions, selectedProjectKey]);
+  }, [projectFilterOptions, selectedProjectKeys]);
   const selectedProjectRefs = useMemo(
     () =>
-      selectedProjectScope === null
+      selectedProjectScopes.length === 0
         ? null
         : new Set(
-            selectedProjectScope.projectRefs.map((projectRef) =>
-              scopedProjectKey(projectRef.environmentId, projectRef.projectId),
+            selectedProjectScopes.flatMap((scope) =>
+              scope.projectRefs.map((projectRef) =>
+                scopedProjectKey(projectRef.environmentId, projectRef.projectId),
+              ),
             ),
           ),
-    [selectedProjectScope],
+    [selectedProjectScopes],
   );
   const scopedProjects = useMemo(
     () =>
@@ -435,7 +441,7 @@ function ThreadNavigationSidebarPane(
   const [settledVisibleCount, setSettledVisibleCount] = useState(
     THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   );
-  const settledResetKey = `${options.selectedEnvironmentId ?? "all"}:${selectedProjectKey ?? "all"}:${props.searchQuery.trim()}`;
+  const settledResetKey = `${options.selectedEnvironmentId ?? "all"}:${selectedProjectKeys.join("\0") || "all"}:${props.searchQuery.trim()}`;
   const lastSettledResetKeyRef = useRef(settledResetKey);
   if (lastSettledResetKeyRef.current !== settledResetKey) {
     lastSettledResetKeyRef.current = settledResetKey;
@@ -532,7 +538,10 @@ function ThreadNavigationSidebarPane(
     return buildThreadListV2Items({
       threads: threads.filter((thread) => thread.archivedAt === null),
       environmentId: options.selectedEnvironmentId,
-      projectRefs: selectedProjectScope === null ? null : selectedProjectScope.projectRefs,
+      projectRefs:
+        selectedProjectScopes.length === 0
+          ? null
+          : selectedProjectScopes.flatMap((scope) => scope.projectRefs),
       searchQuery: props.searchQuery,
       matchedThreadKeys,
       changeRequestStateByKey,
@@ -560,7 +569,7 @@ function ThreadNavigationSidebarPane(
     snoozeEnvironmentIds,
     threadListV2Enabled,
     threads,
-    selectedProjectScope,
+    selectedProjectScopes,
   ]);
   // Re-partition the moment the earliest snooze expires (clamped to the
   // signed-32-bit setTimeout range; far-future wakes re-arm at the clamp).
@@ -659,12 +668,29 @@ function ThreadNavigationSidebarPane(
                   id: "project:all",
                   title: "All projects",
                   subtitle: "Show threads from every project",
-                  state: selectedProjectKey === null ? "on" : "off",
+                  state: selectedProjectKeys.length === 0 ? "on" : "off",
                 },
+                ...(projectFilterOptions.length > 1
+                  ? [
+                      {
+                        id: "project:select",
+                        title: "Select projects",
+                        subtitle: "Show threads from more than one project",
+                        state: shouldShowProjectSelectMode(
+                          projectSelectMode,
+                          selectedProjectKeys.length,
+                        )
+                          ? ("on" as const)
+                          : ("off" as const),
+                      },
+                    ]
+                  : []),
                 ...projectFilterOptions.map((project) => ({
                   id: `project:${project.key}`,
                   title: project.label,
-                  state: selectedProjectKey === project.key ? ("on" as const) : ("off" as const),
+                  state: selectedProjectKeys.includes(project.key)
+                    ? ("on" as const)
+                    : ("off" as const),
                 })),
               ],
             },
@@ -695,7 +721,14 @@ function ThreadNavigationSidebarPane(
             },
           ] satisfies MenuAction[])),
     ],
-    [environments, options, projectFilterOptions, selectedProjectKey, threadListV2Enabled],
+    [
+      environments,
+      options,
+      projectFilterOptions,
+      projectSelectMode,
+      selectedProjectKeys,
+      threadListV2Enabled,
+    ],
   );
   const handleListMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
@@ -712,14 +745,31 @@ function ThreadNavigationSidebarPane(
         return;
       }
       if (event === "project:all") {
-        setSelectedProjectKey(null);
+        setProjectSelectMode(false);
+        setSelectedProjectKeys([]);
+        return;
+      }
+      if (event === "project:select") {
+        const selectMode = shouldShowProjectSelectMode(
+          projectSelectMode,
+          selectedProjectKeys.length,
+        );
+        setProjectSelectMode(!(selectMode && selectedProjectKeys.length <= 1));
         return;
       }
       if (event.startsWith("project:")) {
         const projectKey = event.slice("project:".length);
-        if (projectFilterOptions.some((project) => project.key === projectKey)) {
-          setSelectedProjectKey(projectKey);
+        if (!projectFilterOptions.some((project) => project.key === projectKey)) return;
+        const selectMode = shouldShowProjectSelectMode(
+          projectSelectMode,
+          selectedProjectKeys.length,
+        );
+        if (selectMode) {
+          setSelectedProjectKeys((current) => toggleProjectScopeKey(current, projectKey));
+          return;
         }
+        setProjectSelectMode(false);
+        setSelectedProjectKeys([projectKey]);
         return;
       }
       const projectSort = PROJECT_SORT_OPTIONS.find(
@@ -740,6 +790,8 @@ function ThreadNavigationSidebarPane(
     [
       environments,
       projectFilterOptions,
+      projectSelectMode,
+      selectedProjectKeys,
       setProjectSortOrder,
       setSelectedEnvironmentId,
       setThreadSortOrder,
@@ -1128,8 +1180,8 @@ function ThreadNavigationSidebarPane(
   // v2 ignores the sort/group options, so only the environment filter can
   // light the "customized" state while the beta is on.
   const filterCustomized = threadListV2Enabled
-    ? options.selectedEnvironmentId !== null || selectedProjectKey !== null
-    : hasCustomHomeListOptions({ ...options, selectedProjectKey });
+    ? options.selectedEnvironmentId !== null || selectedProjectKeys.length > 0
+    : hasCustomHomeListOptions({ ...options, selectedProjectKeys });
   const filterIcon = filterCustomized
     ? "line.3.horizontal.decrease.circle.fill"
     : "line.3.horizontal.decrease.circle";
@@ -1139,11 +1191,13 @@ function ThreadNavigationSidebarPane(
         environments,
         projects: projectFilterOptions,
         selectedEnvironmentId: options.selectedEnvironmentId,
-        selectedProjectKey,
+        selectedProjectKeys,
+        projectSelectMode,
         projectSortOrder: options.projectSortOrder,
         threadSortOrder: options.threadSortOrder,
         onEnvironmentChange: setSelectedEnvironmentId,
-        onProjectChange: setSelectedProjectKey,
+        onProjectScopeChange: (keys) => setSelectedProjectKeys([...keys]),
+        onProjectSelectModeChange: setProjectSelectMode,
         onProjectSortOrderChange: setProjectSortOrder,
         onThreadSortOrderChange: setThreadSortOrder,
         listOrganization: !threadListV2Enabled,
@@ -1152,7 +1206,8 @@ function ThreadNavigationSidebarPane(
       environments,
       options,
       projectFilterOptions,
-      selectedProjectKey,
+      projectSelectMode,
+      selectedProjectKeys,
       setProjectSortOrder,
       setSelectedEnvironmentId,
       setThreadSortOrder,
@@ -1178,9 +1233,11 @@ function ThreadNavigationSidebarPane(
           ? threadSearch.isPending
             ? "Searching thread messages…"
             : "No matching threads"
-          : selectedProjectScope !== null
-            ? `No threads in ${selectedProjectScope.title}`
-            : "No threads yet"}
+          : selectedProjectScopes.length === 1
+            ? `No threads in ${selectedProjectScope?.title}`
+            : selectedProjectScopes.length > 1
+              ? "No threads in the selected projects"
+              : "No threads yet"}
     </Text>
   );
 

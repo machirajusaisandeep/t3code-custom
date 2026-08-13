@@ -100,6 +100,27 @@ describe("buildCodeReviewPrompt", () => {
     });
     assert.include(prompt, "current checkout");
   });
+
+  it("tells the reviewer to ask before fixing failed CI checks", () => {
+    const prompt = buildCodeReviewPrompt({
+      changeRequest: makeChangeRequest({
+        checks: [
+          {
+            name: "test",
+            workflow: "CI",
+            status: "fail",
+            url: "https://github.com/octocat/t3code/actions/runs/1",
+          },
+          { name: "lint", workflow: "CI", status: "pass" },
+        ],
+      }),
+      instructions: "",
+    });
+    assert.include(prompt, "CI checks:");
+    assert.include(prompt, "CI · test: fail (https://github.com/octocat/t3code/actions/runs/1)");
+    assert.include(prompt, "ask whether they want you to fix them");
+    assert.include(prompt, "Do not change files");
+  });
 });
 
 describe("buildCodeReviewThreadTitle", () => {

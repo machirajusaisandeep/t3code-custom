@@ -31,6 +31,93 @@ afterEach(() => {
 });
 
 describe("GitHubCli.layer", () => {
+  it.effect("normalizes pull request workflow checks from the status rollup", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([
+              {
+                number: 42,
+                title: "Add PR checks",
+                url: "https://github.com/octocat/t3code/pull/42",
+                baseRefName: "main",
+                headRefName: "feature/pr-checks",
+                state: "OPEN",
+                statusCheckRollup: [
+                  {
+                    __typename: "CheckRun",
+                    name: "test",
+                    workflowName: "CI",
+                    status: "COMPLETED",
+                    conclusion: "FAILURE",
+                    detailsUrl: "https://github.com/octocat/t3code/actions/runs/1",
+                  },
+                  {
+                    __typename: "CheckRun",
+                    name: "lint",
+                    workflowName: "CI",
+                    status: "IN_PROGRESS",
+                    conclusion: null,
+                  },
+                  {
+                    __typename: "StatusContext",
+                    context: "coverage",
+                    state: "SUCCESS",
+                    targetUrl: "https://example.test/coverage",
+                  },
+                ],
+              },
+            ]),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listRepositoryPullRequests({
+        cwd: "/repo",
+        state: "open",
+        limit: 50,
+      });
+
+      assert.deepStrictEqual(result[0]?.checks, [
+        {
+          name: "test",
+          workflow: "CI",
+          status: "fail",
+          url: "https://github.com/octocat/t3code/actions/runs/1",
+        },
+        {
+          name: "lint",
+          workflow: "CI",
+          status: "pending",
+        },
+        {
+          name: "coverage",
+          status: "pass",
+          url: "https://example.test/coverage",
+        },
+      ]);
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "pr",
+          "list",
+          "--state",
+          "open",
+          "--limit",
+          "50",
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner,author,assignees,statusCheckRollup",
+        ],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
   it("does not classify a missing cwd as an unavailable gh executable", () => {
     const context = { command: "gh", cwd: "/repo" } as const;
     const missingCwd = new VcsProcessSpawnError({

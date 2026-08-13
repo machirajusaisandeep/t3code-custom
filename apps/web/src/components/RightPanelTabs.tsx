@@ -7,6 +7,7 @@ import {
   GitBranch,
   GitPullRequest,
   Globe2,
+  ListChecks,
   Plus,
   TerminalSquare,
   X,
@@ -258,6 +259,8 @@ function surfaceTitle(
   terminalLabelsById: ReadonlyMap<string, string>,
 ): string {
   switch (surface.kind) {
+    case "plan":
+      return "Plan";
     case "diff":
       return "Diff";
     case "files":
@@ -314,6 +317,8 @@ function SurfaceIcon({
   theme: "light" | "dark";
 }) {
   switch (surface.kind) {
+    case "plan":
+      return <ListChecks className="size-3 shrink-0" />;
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       const url = !snapshot || snapshot.navStatus._tag === "Idle" ? null : snapshot.navStatus.url;

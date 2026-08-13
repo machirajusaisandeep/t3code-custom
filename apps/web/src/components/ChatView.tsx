@@ -145,6 +145,7 @@ import {
   usePreviewMiniPlayerStore,
 } from "../previewMiniPlayerStore";
 import { RightPanelTabs } from "./RightPanelTabs";
+import { PlanPanel } from "./PlanPanel";
 import { projectSourceFolders } from "@t3tools/shared/projectFolders";
 
 import { useGitPanelStore, selectGitPanelFolder } from "~/gitPanelStore";
@@ -212,7 +213,6 @@ import { buildDraftThreadRouteParams } from "../threadRoutes";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
-  type PersistedComposerImageAttachment,
   useComposerDraftStore,
   type DraftId,
 } from "../composerDraftStore";
@@ -368,6 +368,8 @@ import { useAssetUrls } from "../assets/assetUrls";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
+const FILE_ONLY_BOOTSTRAP_PROMPT =
+  "[User attached one or more files without additional text. Respond using the conversation context and the attached file(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
@@ -2395,7 +2397,9 @@ function ChatViewContent(props: ChatViewProps) {
         ...message,
         attachments: message.attachments.map((attachment) => {
           const previewUrl = serverAttachmentUrlById.get(attachment.id);
-          return previewUrl ? { ...attachment, previewUrl } : attachment;
+          return attachment.type === "image" && previewUrl
+            ? { ...attachment, previewUrl }
+            : attachment;
         }),
       };
     });
@@ -3301,6 +3305,13 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef) return;
     void addBrowserSurface({ threadRef: activeThreadRef, openPreview });
   }, [activeThreadRef, openPreview]);
+  const openPlanSurface = useCallback(
+    (planId: string) => {
+      if (!activeThreadRef) return;
+      useRightPanelStore.getState().openPlan(activeThreadRef, planId);
+    },
+    [activeThreadRef],
+  );
   const addDiffSurface = useCallback(() => {
     if (!activeThreadRef || !isServerThread || !isGitRepo) return;
     useRightPanelStore.getState().open(activeThreadRef, "diff");
@@ -5191,7 +5202,11 @@ function ChatViewContent(props: ChatViewProps) {
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
+      text:
+        messageTextForSend ||
+        (composerImages.some((attachment) => attachment.type === "file")
+          ? FILE_ONLY_BOOTSTRAP_PROMPT
+          : IMAGE_ONLY_BOOTSTRAP_PROMPT),
     });
     // Snapshot synchronously while the composer still owns the original
     // Files. Durable image data is filled in once FileReader finishes below;
@@ -5212,7 +5227,7 @@ function ChatViewContent(props: ChatViewProps) {
     useFailedSubmissionRecoveryStore.getState().capture(recoverySnapshotForSend, []);
     const turnAttachmentsPromise = Promise.all(
       composerImagesSnapshot.map(async (image) => ({
-        type: "image" as const,
+        type: image.type,
         name: image.name,
         mimeType: image.mimeType,
         sizeBytes: image.sizeBytes,
@@ -5220,7 +5235,7 @@ function ChatViewContent(props: ChatViewProps) {
       })),
     );
     const optimisticAttachments = composerImagesSnapshot.map((image) => ({
-      type: "image" as const,
+      type: image.type,
       id: image.id,
       name: image.name,
       mimeType: image.mimeType,
@@ -5273,17 +5288,17 @@ function ChatViewContent(props: ChatViewProps) {
     clearComposerDraftContent(composerDraftTarget);
     composerRef.current?.resetCursorState();
 
-    let firstComposerImageName: string | null = null;
+    let firstComposerAttachmentName: string | null = null;
     if (composerImagesSnapshot.length > 0) {
       const firstComposerImage = composerImagesSnapshot[0];
       if (firstComposerImage) {
-        firstComposerImageName = firstComposerImage.name;
+        firstComposerAttachmentName = firstComposerImage.name;
       }
     }
     let titleSeed = trimmed;
     if (!titleSeed) {
-      if (firstComposerImageName) {
-        titleSeed = `Image: ${firstComposerImageName}`;
+      if (firstComposerAttachmentName) {
+        titleSeed = `${composerImagesSnapshot[0]?.type === "file" ? "File" : "Image"}: ${firstComposerAttachmentName}`;
       } else if (composerTerminalContextsSnapshot.length > 0) {
         titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
       } else if (composerElementContextsSnapshot.length > 0) {
@@ -5342,6 +5357,7 @@ function ChatViewContent(props: ChatViewProps) {
         return image
           ? {
               id: image.id,
+              type: attachment.type,
               name: attachment.name,
               mimeType: attachment.mimeType,
               sizeBytes: attachment.sizeBytes,
@@ -5351,15 +5367,13 @@ function ChatViewContent(props: ChatViewProps) {
       });
       // `Promise.all` preserves order, but keep this all-or-nothing guard at
       // the capture boundary: recovery is never offered with an image missing.
-      if (
-        persistedRecoveryImages.length === composerImagesSnapshot.length &&
-        persistedRecoveryImages.every(
-          (image): image is PersistedComposerImageAttachment => image !== null,
-        )
-      ) {
+      const completePersistedRecoveryImages = persistedRecoveryImages.filter(
+        (image) => image !== null,
+      );
+      if (completePersistedRecoveryImages.length === composerImagesSnapshot.length) {
         useFailedSubmissionRecoveryStore
           .getState()
-          .capture(recoverySnapshotForSend, persistedRecoveryImages);
+          .capture(recoverySnapshotForSend, completePersistedRecoveryImages);
       }
       const bootstrap =
         isLocalDraftThread || baseBranchForWorktree
@@ -6386,7 +6400,16 @@ function ChatViewContent(props: ChatViewProps) {
     </div>
   );
   const rightPanelContent = activeThreadRef ? (
-    activeRightPanelSurface?.kind === "preview" ? (
+    activeRightPanelSurface?.kind === "plan" ? (
+      <PlanPanel
+        planMarkdown={
+          activeThread?.proposedPlans.find((plan) => plan.id === activeRightPanelSurface.planId)
+            ?.planMarkdown ?? null
+        }
+        cwd={gitCwd ?? activeWorkspaceRoot ?? undefined}
+        threadRef={activeThreadRef}
+      />
+    ) : activeRightPanelSurface?.kind === "preview" ? (
       <Suspense fallback={null}>
         <PreviewPanel
           mode="embedded"
@@ -6600,6 +6623,7 @@ function ChatViewContent(props: ChatViewProps) {
                 reviewStartingPlanId={startingPlanId}
                 sourceBusy={isWorking}
                 onReviewPlan={openPlanReviewDialog}
+                onOpenPlan={openPlanSurface}
                 onOpenPlanReview={openPlanReviewThread}
                 onRevisePlan={revisePlanFromReview}
               />

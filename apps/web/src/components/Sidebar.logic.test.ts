@@ -4,6 +4,12 @@ import {
   buildBulkTitleRegenerationContextMenuItem,
   buildMultiSelectThreadContextMenuItems,
   createThreadJumpHintVisibilityController,
+  projectScopeEmptyLabel,
+  projectScopeTriggerLabel,
+  pruneProjectScopeKeys,
+  resolveProjectScopeMemberKeys,
+  shouldShowProjectSelectMode,
+  toggleProjectScopeKey,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarThreadIds,
   resolveAdjacentThreadId,
@@ -1617,5 +1623,74 @@ describe("sortLogicalProjectsForSidebar", () => {
         (project) => project.projectKey,
       ),
     ).toEqual(["logical-newer", "logical-older"]);
+  });
+});
+
+describe("project scope multi-select", () => {
+  const groups = [
+    {
+      projectKey: "alpha",
+      displayName: "Alpha",
+      memberProjectRefs: [
+        { environmentId: "env-local", projectId: "project-alpha" },
+        { environmentId: "env-remote", projectId: "project-alpha-remote" },
+      ],
+    },
+    {
+      projectKey: "beta",
+      displayName: "Beta",
+      memberProjectRefs: [{ environmentId: "env-local", projectId: "project-beta" }],
+    },
+    {
+      projectKey: "gamma",
+      displayName: "Gamma",
+      memberProjectRefs: [{ environmentId: "env-local", projectId: "project-gamma" }],
+    },
+  ];
+
+  it("drops scope keys that no longer exist", () => {
+    expect(pruneProjectScopeKeys(["alpha", "gone", "beta"], ["alpha", "beta", "gamma"])).toEqual([
+      "alpha",
+      "beta",
+    ]);
+    expect(pruneProjectScopeKeys([], ["alpha"])).toEqual([]);
+  });
+
+  it("toggles a project into and out of the scope", () => {
+    expect(toggleProjectScopeKey([], "alpha")).toEqual(["alpha"]);
+    expect(toggleProjectScopeKey(["alpha"], "beta")).toEqual(["alpha", "beta"]);
+    expect(toggleProjectScopeKey(["alpha", "beta"], "alpha")).toEqual(["beta"]);
+  });
+
+  it("maps selected groups to every physical project they contain", () => {
+    expect(resolveProjectScopeMemberKeys([], groups)).toBeNull();
+    expect(resolveProjectScopeMemberKeys(["alpha", "gamma"], groups)).toEqual(
+      new Set([
+        "env-local:project-alpha",
+        "env-remote:project-alpha-remote",
+        "env-local:project-gamma",
+      ]),
+    );
+  });
+
+  it("labels the trigger and empty state for all, one, or several projects", () => {
+    expect(projectScopeTriggerLabel({ selectedKeys: [], groups })).toBe("All projects");
+    expect(projectScopeTriggerLabel({ selectedKeys: ["beta"], groups })).toBe("Beta");
+    expect(projectScopeTriggerLabel({ selectedKeys: ["alpha", "gamma"], groups })).toBe(
+      "2 projects",
+    );
+    expect(projectScopeEmptyLabel({ selectedKeys: [], groups })).toBe("No threads yet");
+    expect(projectScopeEmptyLabel({ selectedKeys: ["beta"], groups })).toBe(
+      "No threads in Beta yet",
+    );
+    expect(projectScopeEmptyLabel({ selectedKeys: ["alpha", "gamma"], groups })).toBe(
+      "No threads in the selected projects",
+    );
+  });
+
+  it("keeps checkbox mode on after more than one project is selected", () => {
+    expect(shouldShowProjectSelectMode(false, 1)).toBe(false);
+    expect(shouldShowProjectSelectMode(true, 0)).toBe(true);
+    expect(shouldShowProjectSelectMode(false, 2)).toBe(true);
   });
 });

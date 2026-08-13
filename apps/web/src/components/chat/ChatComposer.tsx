@@ -15,6 +15,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
@@ -103,6 +104,11 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
+import {
+  composerFileMimeType,
+  isHarAttachmentFile,
+  isSupportedComposerFile,
+} from "./composerAttachments";
 
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, randomUUID } from "~/lib/utils";
@@ -1482,6 +1488,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               const dataUrl = await readFileAsDataUrl(image.file);
               stagedAttachmentById.set(image.id, {
                 id: image.id,
+                type: image.type,
                 name: image.name,
                 mimeType: image.mimeType,
                 sizeBytes: image.sizeBytes,
@@ -2158,12 +2165,28 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
       // Images are re-encoded for the stash rather than stored verbatim: the
       // composer allows up to 10MB per image, but localStorage gives the whole
-      // origin ~5MB. Only the stashed copy shrinks; the live attachment (and
-      // anything sent without stashing) keeps the original file.
+      // origin ~5MB. HAR files are stored as-is because they are already
+      // compact JSON documents. Only the stashed copy changes; the live
+      // attachment (and anything sent without stashing) keeps the original.
       const candidateAttachments: PersistedComposerImageAttachment[] = [];
       const oversizedImageNames: string[] = [];
       const unreadableImageNames: string[] = [];
       for (const image of images) {
+        if (image.type === "file") {
+          try {
+            candidateAttachments.push({
+              id: image.id,
+              type: image.type,
+              name: image.name,
+              mimeType: image.mimeType,
+              sizeBytes: image.sizeBytes,
+              dataUrl: await readFileAsDataUrl(image.file),
+            });
+          } catch {
+            unreadableImageNames.push(image.name);
+          }
+          continue;
+        }
         const result = await compressImageForStash(image.file);
         if (!result.ok) {
           // "too large" and "could not be read" are distinct outcomes; the
@@ -2292,7 +2315,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (pendingUserInputs.length > 0) {
       toastManager.add({
         type: "error",
-        title: "Attach images after answering plan questions.",
+        title: "Attach files after answering plan questions.",
       });
       return;
     }
@@ -2309,12 +2332,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     const acceptedFiles: File[] = [];
     let error: string | null = null;
     for (const file of files) {
-      if (!file.type.startsWith("image/")) {
-        error = `Unsupported file type for '${file.name}'. Please attach image files only.`;
+      if (!isSupportedComposerFile(file)) {
+        error = `Unsupported file type for '${file.name}'. Please attach images or HAR files.`;
+        continue;
+      }
+      if (
+        isHarAttachmentFile(file) &&
+        (file.size <= 0 || file.size > PROVIDER_SEND_TURN_MAX_FILE_BYTES)
+      ) {
+        error = `'${file.name}' is empty or exceeds the 10 MB HAR attachment limit.`;
         continue;
       }
       if (reservedCount >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
-        error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images per message.`;
+        error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} files per message.`;
         break;
       }
       acceptedFiles.push(file);
@@ -2328,6 +2358,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       const nextImages: ComposerImageAttachment[] = [];
       let compressionError: string | null = null;
       for (const file of acceptedFiles) {
+        if (isHarAttachmentFile(file)) {
+          nextImages.push({
+            type: "file",
+            id: randomUUID(),
+            name: file.name,
+            mimeType: composerFileMimeType(file),
+            sizeBytes: file.size,
+            previewUrl: "",
+            file,
+          });
+          continue;
+        }
         // Images over the wire cap are downscaled to fit rather than
         // refused; files already within it pass through byte-for-byte.
         const compressed = await compressImageToByteLimit(file, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES);
@@ -2383,7 +2425,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const annotatingImage =
     annotatingImageId === null
       ? null
-      : (composerImages.find((image) => image.id === annotatingImageId) ?? null);
+      : (composerImages.find((image) => image.id === annotatingImageId && image.type === "image") ??
+        null);
 
   const applyAnnotatedComposerImage = async (file: File) => {
     if (!annotatingImage) return;
@@ -2418,10 +2461,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const onComposerPaste = (event: React.ClipboardEvent<HTMLElement>) => {
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) return;
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-    if (imageFiles.length === 0) return;
+    const supportedFiles = files.filter(isSupportedComposerFile);
+    if (supportedFiles.length === 0) return;
     event.preventDefault();
-    void addComposerImages(imageFiles);
+    void addComposerImages(supportedFiles);
   };
 
   const onComposerDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
@@ -2999,7 +3042,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         key={image.id}
                         className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
                       >
-                        {image.previewUrl ? (
+                        {image.type === "image" && image.previewUrl ? (
                           <button
                             type="button"
                             className="h-full w-full cursor-pointer"
@@ -3018,7 +3061,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           </button>
                         ) : (
                           <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-secondary-label">
-                            {image.name}
+                            <span className="line-clamp-3 break-all">{image.name}</span>
                           </div>
                         )}
                         {nonPersistedComposerImageIdSet.has(image.id) && (

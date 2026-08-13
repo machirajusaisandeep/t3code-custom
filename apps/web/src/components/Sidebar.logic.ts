@@ -923,3 +923,81 @@ export function sortScopedProjectsForSidebar<
       left.id.localeCompare(right.id),
   );
 }
+
+export function pruneProjectScopeKeys(
+  selectedKeys: readonly string[],
+  availableKeys: readonly string[],
+): string[] {
+  if (selectedKeys.length === 0) return [];
+  const available = new Set(availableKeys);
+  return selectedKeys.filter((key) => available.has(key));
+}
+
+export function toggleProjectScopeKey(selectedKeys: readonly string[], key: string): string[] {
+  return selectedKeys.includes(key)
+    ? selectedKeys.filter((selected) => selected !== key)
+    : [...selectedKeys, key];
+}
+
+export function resolveProjectScopeMemberKeys(
+  selectedGroupKeys: readonly string[],
+  groups: ReadonlyArray<{
+    readonly projectKey: string;
+    readonly memberProjectRefs: readonly {
+      readonly environmentId: string;
+      readonly projectId: string;
+    }[];
+  }>,
+): Set<string> | null {
+  if (selectedGroupKeys.length === 0) return null;
+  const selected = new Set(selectedGroupKeys);
+  const keys = new Set<string>();
+  for (const group of groups) {
+    if (!selected.has(group.projectKey)) continue;
+    for (const projectRef of group.memberProjectRefs) {
+      keys.add(`${projectRef.environmentId}:${projectRef.projectId}`);
+    }
+  }
+  return keys;
+}
+
+export function projectScopeTriggerLabel(input: {
+  selectedKeys: readonly string[];
+  groups: ReadonlyArray<{
+    readonly projectKey: string;
+    readonly displayName: string;
+  }>;
+}): string {
+  if (input.selectedKeys.length === 0) return "All projects";
+  if (input.selectedKeys.length === 1) {
+    return (
+      input.groups.find((group) => group.projectKey === input.selectedKeys[0])?.displayName ??
+      "All projects"
+    );
+  }
+  return `${input.selectedKeys.length} projects`;
+}
+
+export function projectScopeEmptyLabel(input: {
+  selectedKeys: readonly string[];
+  groups: ReadonlyArray<{
+    readonly projectKey: string;
+    readonly displayName: string;
+  }>;
+}): string {
+  if (input.selectedKeys.length === 0) return "No threads yet";
+  if (input.selectedKeys.length === 1) {
+    const displayName = input.groups.find(
+      (group) => group.projectKey === input.selectedKeys[0],
+    )?.displayName;
+    return displayName ? `No threads in ${displayName} yet` : "No threads yet";
+  }
+  return "No threads in the selected projects";
+}
+
+export function shouldShowProjectSelectMode(
+  selectMode: boolean,
+  selectedKeyCount: number,
+): boolean {
+  return selectMode || selectedKeyCount > 1;
+}

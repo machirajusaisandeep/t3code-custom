@@ -86,13 +86,12 @@ interface HomeScreenProps {
   >;
   readonly searchQuery: string;
   readonly selectedEnvironmentId: EnvironmentId | null;
-  readonly selectedProjectKey: string | null;
+  readonly selectedProjectKeys: readonly string[];
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly threadSortOrder: SidebarThreadSortOrder;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
-  readonly onProjectChange: (projectKey: string | null) => void;
   readonly onProjectSortOrderChange: (sortOrder: HomeProjectSortOrder) => void;
   readonly onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
   readonly onAddConnection: () => void;
@@ -309,31 +308,30 @@ export function HomeScreen(props: HomeScreenProps) {
       }),
     [props.projectGroupingMode, props.projects, props.selectedEnvironmentId],
   );
-  const selectedProjectScope = useMemo(
-    () =>
-      props.selectedProjectKey === null
-        ? null
-        : (projectScopes.find(
-            (scope) =>
-              scope.key === props.selectedProjectKey ||
-              scope.projectRefs.some(
-                (projectRef) =>
-                  scopedProjectKey(projectRef.environmentId, projectRef.projectId) ===
-                  props.selectedProjectKey,
-              ),
-          ) ?? null),
-    [projectScopes, props.selectedProjectKey],
-  );
+  const selectedProjectScopes = useMemo(() => {
+    if (props.selectedProjectKeys.length === 0) return [];
+    const selected = new Set(props.selectedProjectKeys);
+    return projectScopes.filter(
+      (scope) =>
+        selected.has(scope.key) ||
+        scope.projectRefs.some((projectRef) =>
+          selected.has(scopedProjectKey(projectRef.environmentId, projectRef.projectId)),
+        ),
+    );
+  }, [projectScopes, props.selectedProjectKeys]);
+  const selectedProjectScope = selectedProjectScopes[0] ?? null;
   const selectedProjectRefKeys = useMemo(
     () =>
-      selectedProjectScope === null
+      selectedProjectScopes.length === 0
         ? null
         : new Set(
-            selectedProjectScope.projectRefs.map((projectRef) =>
-              scopedProjectKey(projectRef.environmentId, projectRef.projectId),
+            selectedProjectScopes.flatMap((scope) =>
+              scope.projectRefs.map((projectRef) =>
+                scopedProjectKey(projectRef.environmentId, projectRef.projectId),
+              ),
             ),
           ),
-    [selectedProjectScope],
+    [selectedProjectScopes],
   );
   const scopedProjects = useMemo(
     () =>
@@ -418,7 +416,7 @@ export function HomeScreen(props: HomeScreenProps) {
     return map;
   }, [props.projects]);
 
-  const v2ProjectScopeKey = props.selectedProjectKey;
+  const v2ProjectScopeKeys = props.selectedProjectKeys;
   const v2ScopeProjects = useMemo(
     () =>
       sortHomeProjectScopes({
@@ -436,21 +434,18 @@ export function HomeScreen(props: HomeScreenProps) {
       projectScopes,
     ],
   );
-  const v2ScopedProjectGroup = useMemo(
-    () =>
-      v2ProjectScopeKey === null
-        ? null
-        : (v2ScopeProjects.find(
-            (scope) =>
-              scope.key === v2ProjectScopeKey ||
-              scope.projectRefs.some(
-                (projectRef) =>
-                  scopedProjectKey(projectRef.environmentId, projectRef.projectId) ===
-                  v2ProjectScopeKey,
-              ),
-          ) ?? null),
-    [v2ProjectScopeKey, v2ScopeProjects],
-  );
+  const v2ScopedProjectGroups = useMemo(() => {
+    if (v2ProjectScopeKeys.length === 0) return [];
+    const selected = new Set(v2ProjectScopeKeys);
+    return v2ScopeProjects.filter(
+      (scope) =>
+        selected.has(scope.key) ||
+        scope.projectRefs.some((projectRef) =>
+          selected.has(scopedProjectKey(projectRef.environmentId, projectRef.projectId)),
+        ),
+    );
+  }, [v2ProjectScopeKeys, v2ScopeProjects]);
+  const v2ScopedProjectGroup = v2ScopedProjectGroups[0] ?? null;
   const v2ProjectTitleByProjectKey = useMemo(
     () =>
       new Map(
@@ -468,14 +463,16 @@ export function HomeScreen(props: HomeScreenProps) {
   );
   const v2ScopedProjectKeys = useMemo(
     () =>
-      v2ScopedProjectGroup === null
+      v2ScopedProjectGroups.length === 0
         ? null
         : new Set(
-            v2ScopedProjectGroup.projectRefs.map((projectRef) =>
-              scopedProjectKey(projectRef.environmentId, projectRef.projectId),
+            v2ScopedProjectGroups.flatMap((scope) =>
+              scope.projectRefs.map((projectRef) =>
+                scopedProjectKey(projectRef.environmentId, projectRef.projectId),
+              ),
             ),
           ),
-    [v2ScopedProjectGroup],
+    [v2ScopedProjectGroups],
   );
   // Thread List v2 (beta): one flat list in creation order, no grouping.
   // Settled threads collapse into a recency tail below the card block.
@@ -545,7 +542,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const [settledVisibleCount, setSettledVisibleCount] = useState(
     THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   );
-  const settledResetKey = `${props.selectedEnvironmentId ?? "all"}:${v2ProjectScopeKey ?? "all"}:${props.searchQuery.trim()}`;
+  const settledResetKey = `${props.selectedEnvironmentId ?? "all"}:${v2ProjectScopeKeys.join("\0") || "all"}:${props.searchQuery.trim()}`;
   const lastSettledResetKeyRef = useRef(settledResetKey);
   if (lastSettledResetKeyRef.current !== settledResetKey) {
     lastSettledResetKeyRef.current = settledResetKey;
@@ -645,7 +642,10 @@ export function HomeScreen(props: HomeScreenProps) {
     return buildThreadListV2Items({
       threads: props.threads.filter((thread) => thread.archivedAt === null),
       environmentId: props.selectedEnvironmentId,
-      projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
+      projectRefs:
+        v2ScopedProjectGroups.length === 0
+          ? null
+          : v2ScopedProjectGroups.flatMap((scope) => scope.projectRefs),
       searchQuery: props.searchQuery,
       matchedThreadKeys,
       changeRequestStateByKey,
@@ -672,7 +672,7 @@ export function HomeScreen(props: HomeScreenProps) {
     props.threads,
     matchedThreadKeys,
     threadListV2Enabled,
-    v2ScopedProjectGroup,
+    v2ScopedProjectGroups,
   ]);
   // Re-partition the moment the earliest snooze expires (clamped to the
   // signed-32-bit setTimeout range; far-future wakes re-arm at the clamp).
@@ -1061,9 +1061,14 @@ export function HomeScreen(props: HomeScreenProps) {
   const listEmpty = !hasResults ? (
     hasSearchQuery && threadSearch.isPending ? null : hasSearchQuery ? (
       <EmptyState title="No results" detail={`No threads matching "${props.searchQuery}".`} />
-    ) : selectedProjectScope !== null ? (
+    ) : selectedProjectScopes.length === 1 ? (
       <EmptyState
-        title={`No threads in ${selectedProjectScope.title}`}
+        title={`No threads in ${selectedProjectScope?.title}`}
+        detail="Choose another project or create a new task."
+      />
+    ) : selectedProjectScopes.length > 1 ? (
+      <EmptyState
+        title="No threads in the selected projects"
         detail="Choose another project or create a new task."
       />
     ) : selectedEnvironmentLabel ? (
@@ -1082,9 +1087,14 @@ export function HomeScreen(props: HomeScreenProps) {
   const v2ListEmpty =
     hasSearchQuery && threadSearch.isPending ? null : hasSearchQuery ? (
       <EmptyState title="No results" detail={`No threads matching "${props.searchQuery}".`} />
-    ) : v2ScopedProjectGroup !== null ? (
+    ) : v2ScopedProjectGroups.length === 1 ? (
       <EmptyState
-        title={`No threads in ${v2ScopedProjectGroup.title}`}
+        title={`No threads in ${v2ScopedProjectGroup?.title}`}
+        detail="Choose another project or create a new task."
+      />
+    ) : v2ScopedProjectGroups.length > 1 ? (
+      <EmptyState
+        title="No threads in the selected projects"
         detail="Choose another project or create a new task."
       />
     ) : (

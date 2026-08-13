@@ -33,7 +33,7 @@ import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model"
 import { useMemo } from "react";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
 import { resolveAppModelSelection, resolveAppModelSelectionForInstance } from "./modelSelection";
-import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type ChatImageAttachment } from "./types";
+import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type ChatAttachment } from "./types";
 import {
   type TerminalContextDraft,
   ensureInlineTerminalContextPlaceholders,
@@ -80,6 +80,7 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
 
 export const PersistedComposerImageAttachment = Schema.Struct({
   id: Schema.String,
+  type: Schema.optional(Schema.Literals(["image", "file"])),
   name: Schema.String,
   mimeType: Schema.String,
   sizeBytes: Schema.Number,
@@ -87,7 +88,7 @@ export const PersistedComposerImageAttachment = Schema.Struct({
 });
 export type PersistedComposerImageAttachment = typeof PersistedComposerImageAttachment.Type;
 
-export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "previewUrl"> {
+export interface ComposerImageAttachment extends Omit<ChatAttachment, "previewUrl"> {
   previewUrl: string;
   file: File;
 }
@@ -1107,12 +1108,14 @@ function normalizePersistedAttachment(value: unknown): PersistedComposerImageAtt
   }
   const candidate = value as Record<string, unknown>;
   const id = candidate.id;
+  const type = candidate.type;
   const name = candidate.name;
   const mimeType = candidate.mimeType;
   const sizeBytes = candidate.sizeBytes;
   const dataUrl = candidate.dataUrl;
   if (
     typeof id !== "string" ||
+    (type !== undefined && type !== "image" && type !== "file") ||
     typeof name !== "string" ||
     typeof mimeType !== "string" ||
     typeof sizeBytes !== "number" ||
@@ -1125,6 +1128,7 @@ function normalizePersistedAttachment(value: unknown): PersistedComposerImageAtt
   }
   return {
     id,
+    type: type === "image" || type === "file" ? type : /\.har$/i.test(name) ? "file" : "image",
     name,
     mimeType,
     sizeBytes,
@@ -2181,15 +2185,16 @@ export function hydrateImagesFromPersisted(
   return attachments.flatMap((attachment) => {
     const file = hydratePersistedComposerImageAttachment(attachment);
     if (!file) return [];
+    const type = attachment.type ?? (/\.har$/i.test(attachment.name) ? "file" : "image");
 
     return [
       {
-        type: "image" as const,
+        type,
         id: attachment.id,
         name: attachment.name,
         mimeType: attachment.mimeType,
         sizeBytes: attachment.sizeBytes,
-        previewUrl: attachment.dataUrl,
+        previewUrl: type === "file" ? "" : attachment.dataUrl,
         file,
       } satisfies ComposerImageAttachment,
     ];

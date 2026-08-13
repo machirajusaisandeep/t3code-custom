@@ -24,6 +24,8 @@ import type { HomeProjectSortOrder } from "./homeThreadList";
 import { WorkspaceConnectionTitle } from "./WorkspaceConnectionTitle";
 import {
   buildHomeListFilterMenu,
+  shouldShowProjectSelectMode,
+  toggleProjectScopeKey,
   type HomeListFilterMenuEnvironment,
   type HomeListFilterMenuProject,
 } from "./home-list-filter-menu";
@@ -40,12 +42,14 @@ export function HomeHeader(props: {
   readonly projects: ReadonlyArray<HomeListFilterMenuProject>;
   readonly searchQuery: string;
   readonly selectedEnvironmentId: EnvironmentId | null;
-  readonly selectedProjectKey: string | null;
+  readonly selectedProjectKeys: readonly string[];
+  readonly projectSelectMode: boolean;
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly threadSortOrder: SidebarThreadSortOrder;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
-  readonly onProjectChange: (projectKey: string | null) => void;
+  readonly onProjectScopeChange: (projectKeys: readonly string[]) => void;
+  readonly onProjectSelectModeChange: (enabled: boolean) => void;
   readonly onProjectSortOrderChange: (sortOrder: HomeProjectSortOrder) => void;
   readonly onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
   readonly onOpenEnvironments: () => void;
@@ -76,7 +80,7 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
   // key the "customized" icon state off the environment filter alone.
   const threadListV2Enabled = useThreadListV2Enabled();
   const hasCustomListOptions = threadListV2Enabled
-    ? props.selectedEnvironmentId !== null || props.selectedProjectKey !== null
+    ? props.selectedEnvironmentId !== null || props.selectedProjectKeys.length > 0
     : hasCustomHomeListOptions(props);
   const menuActions = useMemo<MenuAction[]>(
     () => [
@@ -106,12 +110,24 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
                 {
                   id: "project:all",
                   title: "All projects",
-                  state: checkedMenuState(props.selectedProjectKey === null),
+                  state: checkedMenuState(props.selectedProjectKeys.length === 0),
                 },
+                ...(props.projects.length > 1
+                  ? [
+                      {
+                        id: "project:select",
+                        title: "Select projects",
+                        subtitle: "Show threads from more than one project",
+                        state: checkedMenuState(
+                          props.projectSelectMode || props.selectedProjectKeys.length > 1,
+                        ),
+                      },
+                    ]
+                  : []),
                 ...props.projects.map((project) => ({
                   id: `project:${project.key}`,
                   title: project.label,
-                  state: checkedMenuState(props.selectedProjectKey === project.key),
+                  state: checkedMenuState(props.selectedProjectKeys.includes(project.key)),
                 })),
               ],
             },
@@ -144,7 +160,8 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
       props.projectSortOrder,
       props.projects,
       props.selectedEnvironmentId,
-      props.selectedProjectKey,
+      props.projectSelectMode,
+      props.selectedProjectKeys,
       props.threadSortOrder,
       threadListV2Enabled,
     ],
@@ -169,15 +186,33 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
       }
 
       if (id === "project:all") {
-        props.onProjectChange(null);
+        props.onProjectSelectModeChange(false);
+        props.onProjectScopeChange([]);
+        return;
+      }
+
+      if (id === "project:select") {
+        const selectMode = shouldShowProjectSelectMode(
+          props.projectSelectMode,
+          props.selectedProjectKeys.length,
+        );
+        props.onProjectSelectModeChange(!(selectMode && props.selectedProjectKeys.length <= 1));
         return;
       }
 
       if (id.startsWith("project:")) {
         const projectKey = id.slice("project:".length);
-        if (props.projects.some((project) => project.key === projectKey)) {
-          props.onProjectChange(projectKey);
+        if (!props.projects.some((project) => project.key === projectKey)) return;
+        const selectMode = shouldShowProjectSelectMode(
+          props.projectSelectMode,
+          props.selectedProjectKeys.length,
+        );
+        if (selectMode) {
+          props.onProjectScopeChange(toggleProjectScopeKey(props.selectedProjectKeys, projectKey));
+          return;
         }
+        props.onProjectSelectModeChange(false);
+        props.onProjectScopeChange([projectKey]);
         return;
       }
 
@@ -320,7 +355,7 @@ function IosHomeHeader(props: HomeHeaderProps) {
   // key the "customized" icon state off the environment filter alone.
   const threadListV2Enabled = useThreadListV2Enabled();
   const hasCustomListOptions = threadListV2Enabled
-    ? props.selectedEnvironmentId !== null || props.selectedProjectKey !== null
+    ? props.selectedEnvironmentId !== null || props.selectedProjectKeys.length > 0
     : hasCustomHomeListOptions(props);
   const focusSearch = useCallback(() => {
     searchBarRef.current?.focus();
@@ -436,17 +471,53 @@ function IosHomeHeader(props: HomeHeaderProps) {
               <NativeHeaderToolbar.Menu title="Project">
                 <NativeHeaderToolbar.Label>Project</NativeHeaderToolbar.Label>
                 <NativeHeaderToolbar.MenuAction
-                  isOn={props.selectedProjectKey === null}
-                  onPress={() => props.onProjectChange(null)}
+                  isOn={props.selectedProjectKeys.length === 0}
+                  onPress={() => {
+                    props.onProjectSelectModeChange(false);
+                    props.onProjectScopeChange([]);
+                  }}
                   subtitle="Show threads from every project"
                 >
                   <NativeHeaderToolbar.Label>All projects</NativeHeaderToolbar.Label>
                 </NativeHeaderToolbar.MenuAction>
+                {props.projects.length > 1 ? (
+                  <NativeHeaderToolbar.MenuAction
+                    isOn={shouldShowProjectSelectMode(
+                      props.projectSelectMode,
+                      props.selectedProjectKeys.length,
+                    )}
+                    onPress={() => {
+                      const selectMode = shouldShowProjectSelectMode(
+                        props.projectSelectMode,
+                        props.selectedProjectKeys.length,
+                      );
+                      props.onProjectSelectModeChange(
+                        !(selectMode && props.selectedProjectKeys.length <= 1),
+                      );
+                    }}
+                    subtitle="Show threads from more than one project"
+                  >
+                    <NativeHeaderToolbar.Label>Select projects</NativeHeaderToolbar.Label>
+                  </NativeHeaderToolbar.MenuAction>
+                ) : null}
                 {props.projects.map((project) => (
                   <NativeHeaderToolbar.MenuAction
                     key={project.key}
-                    isOn={props.selectedProjectKey === project.key}
-                    onPress={() => props.onProjectChange(project.key)}
+                    isOn={props.selectedProjectKeys.includes(project.key)}
+                    onPress={() => {
+                      const selectMode = shouldShowProjectSelectMode(
+                        props.projectSelectMode,
+                        props.selectedProjectKeys.length,
+                      );
+                      if (selectMode) {
+                        props.onProjectScopeChange(
+                          toggleProjectScopeKey(props.selectedProjectKeys, project.key),
+                        );
+                        return;
+                      }
+                      props.onProjectSelectModeChange(false);
+                      props.onProjectScopeChange([project.key]);
+                    }}
                   >
                     <NativeHeaderToolbar.Label>{project.label}</NativeHeaderToolbar.Label>
                   </NativeHeaderToolbar.MenuAction>
