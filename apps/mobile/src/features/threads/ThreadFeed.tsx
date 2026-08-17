@@ -625,7 +625,7 @@ function useMarkdownStyles(onLinkPress: (href: string) => void): MarkdownStyleSe
                 <NativeText
                   className="font-sans"
                   style={{
-                    width: ordered ? 22 : 12,
+                    width: ordered ? 30 : 12,
                     marginRight: 5,
                     color: inlineTextColor,
                     fontSize: markdownFontSizes.m,

@@ -2049,7 +2049,7 @@ label:has(> select#reasoning-effort) select {
 }
 
 .chat-markdown ol {
-  padding-left: 1.25rem;
+  padding-left: 2rem;
   list-style-type: decimal;
 }
 

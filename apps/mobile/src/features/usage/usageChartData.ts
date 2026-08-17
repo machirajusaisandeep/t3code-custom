@@ -23,11 +23,12 @@ export function buildChartDays(
   days: readonly string[],
   daily: readonly DailyTotals[],
   metric: UsageChartMetric,
+  providers: readonly UsageProviderKind[] = PROVIDER_ORDER,
 ): readonly UsageChartDay[] {
   const byDay = new Map(daily.map((totals) => [totals.day, totals]));
   return days.map((day) => {
     const totals = byDay.get(day);
-    const values = PROVIDER_ORDER.map((provider) => {
+    const values = providers.map((provider) => {
       const entry = totals?.byProvider.get(provider);
       const value = entry === undefined ? 0 : metric === "cost" ? entry.costUsd : entry.totalTokens;
       return { provider, value };
