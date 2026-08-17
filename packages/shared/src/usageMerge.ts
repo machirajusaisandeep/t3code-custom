@@ -20,6 +20,25 @@ export interface EnvironmentUsage {
   readonly summary: UsageSummary;
 }
 
+/**
+ * Client-side slice of a merged summary. Empty sets mean "no restriction"
+ * rather than "match nothing", so clearing a filter restores the full view.
+ */
+export interface UsageViewFilters {
+  readonly providers?: ReadonlySet<UsageProviderKind>;
+  readonly models?: ReadonlySet<string>;
+}
+
+function bucketMatchesFilters(bucket: UsageBucket, filters: UsageViewFilters | undefined): boolean {
+  if (filters?.providers !== undefined && filters.providers.size > 0) {
+    if (!filters.providers.has(bucket.provider)) return false;
+  }
+  if (filters?.models !== undefined && filters.models.size > 0) {
+    if (!filters.models.has(bucket.model)) return false;
+  }
+  return true;
+}
+
 export interface ProviderTotals {
   readonly provider: UsageProviderKind;
   readonly costUsd: number;
@@ -126,9 +145,12 @@ function claimSources(environments: readonly EnvironmentUsage[]): {
 function ownedContribution(
   environment: EnvironmentUsage,
   ownerByFingerprint: ReadonlyMap<string, EnvironmentId>,
-): { readonly buckets: readonly UsageBucket[]; readonly sessions: number } {
+): {
+  readonly buckets: readonly UsageBucket[];
+  readonly sessionsByProvider: ReadonlyMap<UsageProviderKind, number>;
+} {
   const ownedProviders = new Set<UsageProviderKind>();
-  let sessions = 0;
+  const sessionsByProvider = new Map<UsageProviderKind, number>();
   for (const source of environment.summary.sources) {
     if (source.status === "missing") continue;
     const key = fingerprintKey(source.fingerprint);
@@ -136,12 +158,15 @@ function ownedContribution(
       ownedProviders.add(source.fingerprint.provider);
       // Distinct within a directory. Summing per-bucket session counts instead
       // would count a session once per day and model it spans.
-      sessions += source.distinctSessions;
+      sessionsByProvider.set(
+        source.fingerprint.provider,
+        (sessionsByProvider.get(source.fingerprint.provider) ?? 0) + source.distinctSessions,
+      );
     }
   }
   return {
     buckets: environment.summary.buckets.filter((bucket) => ownedProviders.has(bucket.provider)),
-    sessions,
+    sessionsByProvider,
   };
 }
 
@@ -189,6 +214,7 @@ const EMPTY_MERGED: MergedUsage = {
 export function mergeUsage(
   environments: readonly EnvironmentUsage[],
   expectedContractVersion: number,
+  filters?: UsageViewFilters,
 ): MergedUsage {
   if (environments.length === 0) return EMPTY_MERGED;
 
@@ -235,14 +261,17 @@ export function mergeUsage(
   const contributingEnvironments: EnvironmentId[] = [];
 
   for (const environment of current) {
-    const { buckets, sessions: environmentSessions } = ownedContribution(
-      environment,
-      ownerByFingerprint,
-    );
+    const { buckets, sessionsByProvider } = ownedContribution(environment, ownerByFingerprint);
     if (buckets.length > 0) contributingEnvironments.push(environment.environmentId);
-    sessions += environmentSessions;
+    for (const [provider, count] of sessionsByProvider) {
+      if (filters?.providers !== undefined && filters.providers.size > 0) {
+        if (!filters.providers.has(provider)) continue;
+      }
+      sessions += count;
+    }
 
     for (const bucket of buckets) {
+      if (!bucketMatchesFilters(bucket, filters)) continue;
       const tokens = bucketTokens(bucket);
 
       costUsd += bucket.costUsd;

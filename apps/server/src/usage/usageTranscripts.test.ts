@@ -4,6 +4,7 @@ import {
   initialCodexScanState,
   parseClaudeLine,
   parseCodexLine,
+  parseGrokLine,
   totalTokens,
 } from "./usageTranscripts.ts";
 
@@ -233,6 +234,108 @@ describe("parseCodexLine", () => {
       );
       expect(record).not.toBeNull();
     });
+  });
+});
+
+describe("parseGrokLine", () => {
+  const grokLine = (overrides: {
+    timestamp?: number;
+    sessionId?: string;
+    promptId?: string;
+    usage?: Record<string, unknown>;
+    modelUsage?: Record<string, Record<string, unknown>>;
+  }) =>
+    JSON.stringify({
+      timestamp: overrides.timestamp ?? 1_785_426_942,
+      method: "_x.ai/session/update",
+      params: {
+        sessionId: overrides.sessionId ?? "session-grok",
+        update: {
+          sessionUpdate: "turn_completed",
+          prompt_id: overrides.promptId ?? "prompt-1",
+          stop_reason: "end_turn",
+          usage: {
+            inputTokens: 49970,
+            outputTokens: 1547,
+            totalTokens: 51517,
+            cachedReadTokens: 41216,
+            reasoningTokens: 257,
+            costUsdTicks: 391_548_000,
+            ...(overrides.modelUsage === undefined ? {} : { modelUsage: overrides.modelUsage }),
+            ...overrides.usage,
+          },
+        },
+      },
+    });
+
+  it("extracts per-prompt totals and a reported cost", () => {
+    const [record] = parseGrokLine(
+      grokLine({
+        modelUsage: {
+          "grok-4.6-build": {
+            inputTokens: 49970,
+            outputTokens: 1547,
+            cachedReadTokens: 41216,
+            reasoningTokens: 257,
+            costUsdTicks: 391_548_000,
+          },
+        },
+      }),
+    );
+
+    expect(record?.provider).toBe("grok");
+    expect(record?.model).toBe("grok-4.6-build");
+    expect(record?.sessionId).toBe("session-grok");
+    expect(record?.timestampMs).toBe(1_785_426_942_000);
+    expect(record?.totals).toEqual({
+      uncachedInputTokens: 49970 - 41216,
+      cachedInputTokens: 41216,
+      cacheCreationTokens: 0,
+      outputTokens: 1547,
+      reasoningTokens: 257,
+    });
+    expect(record?.reportedCostUsd).toBeCloseTo(0.391548, 9);
+    expect(record?.dedupeKey).toBe("session-grok:prompt-1:1785426942000:grok-4.6-build");
+  });
+
+  it("splits a multi-model turn so each model can be filtered", () => {
+    const records = parseGrokLine(
+      grokLine({
+        modelUsage: {
+          "grok-4.6-build": {
+            inputTokens: 100,
+            outputTokens: 10,
+            cachedReadTokens: 20,
+            reasoningTokens: 4,
+            costUsdTicks: 1_000_000_000,
+          },
+          "grok-4.5-build": {
+            inputTokens: 50,
+            outputTokens: 5,
+            cachedReadTokens: 0,
+            reasoningTokens: 1,
+            costUsdTicks: 500_000_000,
+          },
+        },
+      }),
+    );
+
+    expect(records.map((record) => record.model).sort()).toEqual([
+      "grok-4.5-build",
+      "grok-4.6-build",
+    ]);
+    expect(records.find((record) => record.model === "grok-4.6-build")?.reportedCostUsd).toBe(1);
+  });
+
+  it("falls back to the top-level usage when modelUsage is missing", () => {
+    const [record] = parseGrokLine(grokLine({}));
+    expect(record?.model).toBe("grok");
+    expect(record?.totals.outputTokens).toBe(1547);
+  });
+
+  it("ignores lines that are not completed turns", () => {
+    expect(parseGrokLine(JSON.stringify({ type: "turn_started" }))).toEqual([]);
+    expect(parseGrokLine("not json")).toEqual([]);
   });
 });
 

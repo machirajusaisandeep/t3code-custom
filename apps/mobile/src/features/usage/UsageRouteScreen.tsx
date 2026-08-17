@@ -1,5 +1,6 @@
 import { useNavigation } from "@react-navigation/native";
-import type { MergedUsage } from "@t3tools/shared/usageMerge";
+import type { UsageProviderKind } from "@t3tools/contracts";
+import type { MergedUsage, UsageViewFilters } from "@t3tools/shared/usageMerge";
 import {
   enumerateDays,
   formatCount,
@@ -9,7 +10,7 @@ import {
   formatUsd,
   makeWindow,
 } from "@t3tools/shared/usageFormat";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Platform, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -20,7 +21,7 @@ import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { UsageDailyChart } from "./UsageDailyChart";
 import type { UsageChartMetric } from "./usageChartData";
-import { PROVIDER_LABEL, useProviderColors } from "./usageProviders";
+import { PROVIDER_LABEL, PROVIDER_ORDER, useProviderColors } from "./usageProviders";
 
 const WINDOW_OPTIONS = [
   { days: 7, label: "7 days" },
@@ -35,11 +36,49 @@ export function UsageRouteScreen() {
   const insets = useSafeAreaInsets();
   const [windowDays, setWindowDays] = useState<number>(30);
   const [metric, setMetric] = useState<UsageChartMetric>("cost");
+  const [enabledProviders, setEnabledProviders] = useState<ReadonlySet<UsageProviderKind> | null>(
+    null,
+  );
+  const [enabledModels, setEnabledModels] = useState<ReadonlySet<string> | null>(null);
 
   // Recomputed only when the window length changes, so a re-render does not
   // shift the range and refetch every environment.
   const window = useMemo(() => makeWindow(windowDays), [windowDays]);
-  const { merged, environments, isPending, isPartial, refresh } = useUsage(window);
+  const filters = useMemo((): UsageViewFilters | undefined => {
+    if (enabledProviders === null && enabledModels === null) return undefined;
+    return {
+      ...(enabledProviders === null ? {} : { providers: enabledProviders }),
+      ...(enabledModels === null ? {} : { models: enabledModels }),
+    };
+  }, [enabledModels, enabledProviders]);
+  const { merged, all, environments, isPending, isPartial, refresh } = useUsage(window, filters);
+
+  const visibleProviders = useMemo(
+    () =>
+      enabledProviders === null
+        ? PROVIDER_ORDER
+        : PROVIDER_ORDER.filter((provider) => enabledProviders.has(provider)),
+    [enabledProviders],
+  );
+
+  const toggleProvider = useCallback((provider: UsageProviderKind) => {
+    setEnabledProviders((current) => {
+      const next = new Set(current ?? PROVIDER_ORDER);
+      if (next.has(provider)) {
+        if (next.size === 1) return current;
+        next.delete(provider);
+      } else {
+        next.add(provider);
+      }
+      return next.size === PROVIDER_ORDER.length ? null : next;
+    });
+  }, []);
+
+  const isolateModel = useCallback((model: string) => {
+    setEnabledModels((current) =>
+      current !== null && current.size === 1 && current.has(model) ? null : new Set([model]),
+    );
+  }, []);
 
   const days = useMemo(
     () => enumerateDays(window.sinceDay, window.untilDay),
@@ -87,15 +126,25 @@ export function UsageRouteScreen() {
           <>
             <ChartCard
               merged={merged}
+              all={all}
               days={days}
               metric={metric}
               onMetricChange={setMetric}
               sinceDay={window.sinceDay}
               untilDay={window.untilDay}
+              visibleProviders={visibleProviders}
+              enabledProviders={enabledProviders}
+              enabledModels={enabledModels}
+              onToggleProvider={toggleProvider}
+              onClearModels={() => setEnabledModels(null)}
             />
-            <ProviderSection merged={merged} metric={metric} />
+            <ProviderSection merged={merged} metric={metric} onToggleProvider={toggleProvider} />
             <TotalsSection merged={merged} />
-            <ModelsSection merged={merged} />
+            <ModelsSection
+              merged={merged}
+              selectedModels={enabledModels}
+              onSelectModel={isolateModel}
+            />
           </>
         )}
       </ScrollView>
@@ -141,15 +190,27 @@ function SegmentedControl<Value extends number | string>(props: {
 /** Headline figure, the animated daily chart, and its legend, in one card. */
 function ChartCard(props: {
   readonly merged: MergedUsage;
+  readonly all: MergedUsage;
   readonly days: readonly string[];
   readonly metric: UsageChartMetric;
   readonly onMetricChange: (metric: UsageChartMetric) => void;
   readonly sinceDay: string;
   readonly untilDay: string;
+  readonly visibleProviders: readonly UsageProviderKind[];
+  readonly enabledProviders: ReadonlySet<UsageProviderKind> | null;
+  readonly enabledModels: ReadonlySet<string> | null;
+  readonly onToggleProvider: (provider: UsageProviderKind) => void;
+  readonly onClearModels: () => void;
 }) {
   const { merged, metric } = props;
   const colors = useProviderColors();
   const hasActivity = merged.daily.some((day) => day.totalTokens > 0);
+  const modelFilterLabel =
+    props.enabledModels === null
+      ? null
+      : props.enabledModels.size === 1
+        ? [...props.enabledModels][0]
+        : `${props.enabledModels.size} models`;
 
   return (
     <View className="gap-4 rounded-[24px] border-continuous bg-card p-4">
@@ -176,6 +237,7 @@ function ChartCard(props: {
           daily={merged.daily}
           metric={metric}
           height={CHART_HEIGHT}
+          providers={props.visibleProviders}
         />
       ) : (
         <View style={{ height: CHART_HEIGHT }} className="items-center justify-center">
@@ -185,21 +247,48 @@ function ChartCard(props: {
 
       <View className="flex-row items-center justify-between">
         <Text className="text-xs text-foreground-tertiary">{formatDayShort(props.sinceDay)}</Text>
-        <View className="flex-row items-center gap-4">
-          {merged.providers.map((provider) => (
-            <View key={provider.provider} className="flex-row items-center gap-1.5">
-              <View
-                className="size-2 rounded-full"
-                style={{ backgroundColor: colors[provider.provider] }}
-              />
-              <Text className="text-xs text-foreground-muted">
-                {PROVIDER_LABEL[provider.provider]}
-              </Text>
-            </View>
-          ))}
+        <View className="flex-row flex-wrap items-center justify-center gap-3">
+          {PROVIDER_ORDER.filter((provider) =>
+            props.all.providers.some((entry) => entry.provider === provider),
+          ).map((provider) => {
+            const active = props.enabledProviders === null || props.enabledProviders.has(provider);
+            return (
+              <Pressable
+                key={provider}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                onPress={() => props.onToggleProvider(provider)}
+                className="flex-row items-center gap-1.5"
+              >
+                <View
+                  className="size-2 rounded-full"
+                  style={{
+                    backgroundColor: colors[provider],
+                    opacity: active ? 1 : 0.35,
+                  }}
+                />
+                <Text
+                  className={
+                    active ? "text-xs text-foreground" : "text-xs text-foreground-tertiary"
+                  }
+                >
+                  {PROVIDER_LABEL[provider]}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
         <Text className="text-xs text-foreground-tertiary">{formatDayShort(props.untilDay)}</Text>
       </View>
+      {modelFilterLabel === null ? null : (
+        <Pressable
+          accessibilityRole="button"
+          onPress={props.onClearModels}
+          className="self-start rounded-full bg-subtle px-3 py-1"
+        >
+          <Text className="text-xs text-foreground">{modelFilterLabel} · Clear</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -239,6 +328,7 @@ function MetricToggle(props: {
 function ProviderSection(props: {
   readonly merged: MergedUsage;
   readonly metric: UsageChartMetric;
+  readonly onToggleProvider: (provider: UsageProviderKind) => void;
 }) {
   const { merged, metric } = props;
   const colors = useProviderColors();
@@ -255,8 +345,10 @@ function ProviderSection(props: {
       {ordered.map((provider, index) => {
         const share = metric === "cost" ? provider.costShare : provider.tokenShare;
         return (
-          <View
+          <Pressable
             key={provider.provider}
+            accessibilityRole="button"
+            onPress={() => props.onToggleProvider(provider.provider)}
             className={index === 0 ? "gap-2 p-4" : "gap-2 border-t border-border-subtle p-4"}
           >
             <View className="flex-row items-baseline justify-between gap-3">
@@ -285,7 +377,7 @@ function ProviderSection(props: {
                 ? `${formatPercent(share)} of cost · ${formatTokens(provider.totalTokens)} tokens`
                 : `${formatPercent(share)} of tokens · ${formatUsd(provider.costUsd)}`}
             </Text>
-          </View>
+          </Pressable>
         );
       })}
     </SettingsSection>
@@ -355,7 +447,11 @@ function MetricCell(props: {
   );
 }
 
-function ModelsSection(props: { readonly merged: MergedUsage }) {
+function ModelsSection(props: {
+  readonly merged: MergedUsage;
+  readonly selectedModels: ReadonlySet<string> | null;
+  readonly onSelectModel: (model: string) => void;
+}) {
   const { merged } = props;
   const colors = useProviderColors();
   if (merged.models.length === 0) return null;
@@ -363,8 +459,16 @@ function ModelsSection(props: { readonly merged: MergedUsage }) {
   return (
     <SettingsSection title="By model" card>
       {merged.models.map((model, index) => (
-        <View
+        <Pressable
           key={`${model.provider}:${model.model}`}
+          accessibilityRole="button"
+          accessibilityState={{
+            selected:
+              props.selectedModels !== null &&
+              props.selectedModels.size === 1 &&
+              props.selectedModels.has(model.model),
+          }}
+          onPress={() => props.onSelectModel(model.model)}
           className={
             index === 0
               ? "flex-row items-center gap-3 p-4"
@@ -384,7 +488,7 @@ function ModelsSection(props: { readonly merged: MergedUsage }) {
             </Text>
           </View>
           <Text className="text-base tabular-nums text-foreground">{formatUsd(model.costUsd)}</Text>
-        </View>
+        </Pressable>
       ))}
     </SettingsSection>
   );

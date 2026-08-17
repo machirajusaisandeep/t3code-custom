@@ -19,8 +19,15 @@ import {
   stripDisplayedPlanMarkdown,
 } from "../../proposedPlan";
 import ChatMarkdown from "../ChatMarkdown";
-import { EllipsisIcon, ListChecksIcon, Maximize2Icon, Minimize2Icon } from "lucide-react";
+import {
+  EllipsisIcon,
+  ListChecksIcon,
+  Maximize2Icon,
+  Minimize2Icon,
+  WandSparklesIcon,
+} from "lucide-react";
 import { Button } from "../ui/button";
+import { Spinner } from "../ui/spinner";
 import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { cn } from "~/lib/utils";
@@ -70,6 +77,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   onRevisePlan?: ((input: { planId: string; feedback: string }) => void) | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [reviewInsightsExpanded, setReviewInsightsExpanded] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [savePath, setSavePath] = useState("");
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
@@ -105,11 +113,19 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   const reviewThread = Option.getOrNull(reviewThreadState.data);
   const reviewFeedback = useMemo(
     () =>
-      [...(reviewThread?.messages ?? [])]
-        .reverse()
-        .find(
+      (reviewThread?.messages ?? [])
+        .findLast(
           (message) => message.role === "assistant" && !message.streaming && message.text.trim(),
         )
+        ?.text.trim() ?? null,
+    [reviewThread?.messages],
+  );
+  // Latest assistant text including the in-flight message, so the card streams
+  // the reviewer's insights instead of just showing a spinner until it settles.
+  const reviewProgress = useMemo(
+    () =>
+      (reviewThread?.messages ?? [])
+        .findLast((message) => message.role === "assistant" && message.text.trim())
         ?.text.trim() ?? null,
     [reviewThread?.messages],
   );
@@ -133,6 +149,9 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
           : reviewState === "running"
             ? "Reviewing…"
             : null;
+  const reviewPending = reviewStarting || reviewState === "running";
+  const reviewInsights = reviewState === "completed" ? reviewFeedback : reviewProgress;
+  const canCollapseInsights = (reviewInsights?.length ?? 0) > 600;
 
   const handleDownload = () => {
     downloadPlanAsTextFile(downloadFilename, saveContents);
@@ -248,39 +267,92 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-card/95 via-card/80 to-transparent" />
           ) : null}
         </div>
+        {onReviewPlan && (review || reviewStarting) ? (
+          <div className="mt-4 rounded-2xl border border-border/70 bg-muted/30 p-3">
+            <div className="flex items-center gap-2">
+              {reviewPending ? (
+                <Spinner className="size-3.5 text-muted-foreground" />
+              ) : (
+                <ListChecksIcon aria-hidden className="size-3.5 text-muted-foreground" />
+              )}
+              <span className="text-xs font-medium text-foreground">
+                {reviewLabel ?? "Plan review"}
+              </span>
+              {review && onOpenReview ? (
+                <Button
+                  className="ml-auto"
+                  size="xs"
+                  variant="ghost"
+                  data-scroll-anchor-ignore
+                  onClick={() => onOpenReview(review.reviewThreadId)}
+                >
+                  Open review
+                </Button>
+              ) : null}
+            </div>
+            {reviewInsights ? (
+              <>
+                <div
+                  className={cn(
+                    "relative mt-2",
+                    canCollapseInsights && !reviewInsightsExpanded && "max-h-48 overflow-hidden",
+                  )}
+                >
+                  <ChatMarkdown
+                    text={reviewInsights}
+                    cwd={cwd}
+                    threadRef={threadRef}
+                    isStreaming={reviewPending}
+                  />
+                  {canCollapseInsights && !reviewInsightsExpanded ? (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-muted/60 to-transparent" />
+                  ) : null}
+                </div>
+                {canCollapseInsights ? (
+                  <Button
+                    className="mt-1"
+                    size="xs"
+                    variant="ghost"
+                    data-scroll-anchor-ignore
+                    onClick={() => setReviewInsightsExpanded((value) => !value)}
+                  >
+                    {reviewInsightsExpanded ? "Show less" : "Show all insights"}
+                  </Button>
+                ) : null}
+              </>
+            ) : (
+              <p className="mt-2 text-muted-foreground text-xs">
+                {reviewPending
+                  ? "Waiting for the reviewer's insights…"
+                  : "The reviewer did not return any feedback."}
+              </p>
+            )}
+          </div>
+        ) : null}
         {canCollapse || onReviewPlan ? (
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             {onReviewPlan ? (
               <>
-                {reviewLabel ? (
-                  <span className="self-center text-muted-foreground text-xs">{reviewLabel}</span>
-                ) : null}
                 <Button
                   size="sm"
                   variant="outline"
                   data-scroll-anchor-ignore
-                  disabled={reviewStarting || reviewState === "running"}
+                  disabled={reviewPending}
                   onClick={() => onReviewPlan(planId)}
                 >
-                  <ListChecksIcon aria-hidden className="size-3.5" />
+                  {reviewPending ? (
+                    <Spinner className="size-3.5" />
+                  ) : (
+                    <ListChecksIcon aria-hidden className="size-3.5" />
+                  )}
                   {reviewState === "completed" ||
                   reviewState === "error" ||
                   reviewState === "stopped"
                     ? "Review again"
-                    : reviewStarting || reviewState === "running"
+                    : reviewPending
                       ? reviewLabel
                       : "Review plan"}
                 </Button>
-                {review && onOpenReview ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    data-scroll-anchor-ignore
-                    onClick={() => onOpenReview(review.reviewThreadId)}
-                  >
-                    Open review
-                  </Button>
-                ) : null}
                 {review && reviewState === "completed" && onRevisePlan ? (
                   <Button
                     size="sm"
@@ -292,7 +364,8 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
                       }
                     }}
                   >
-                    Revise plan
+                    <WandSparklesIcon aria-hidden className="size-3.5" />
+                    Refine plan with review
                   </Button>
                 ) : null}
               </>

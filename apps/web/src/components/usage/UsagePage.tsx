@@ -1,6 +1,6 @@
 import type { UsageProviderKind } from "@t3tools/contracts";
-import { CheckIcon, RefreshCwIcon, XIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { CheckIcon, ChevronDownIcon, RefreshCwIcon, XIcon } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
@@ -14,6 +14,8 @@ import {
   formatUsd,
   makeWindow,
 } from "@t3tools/shared/usageFormat";
+import type { UsageViewFilters } from "@t3tools/shared/usageMerge";
+import { Menu, MenuCheckboxItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { ScrollArea } from "../ui/scroll-area";
 import { SidebarInset } from "../ui/sidebar";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
@@ -31,11 +33,65 @@ export function UsagePage() {
   const [windowDays, setWindowDays] = useState<number>(30);
   const [metric, setMetric] = useState<UsageChartMetric>("cost");
   const [breakdown, setBreakdown] = useState<"model" | "day">("model");
+  const [enabledProviders, setEnabledProviders] = useState<ReadonlySet<UsageProviderKind> | null>(
+    null,
+  );
+  const [enabledModels, setEnabledModels] = useState<ReadonlySet<string> | null>(null);
 
   // Recomputed only when the window length changes, so a re-render does not
   // shift the range and refetch every environment.
   const window = useMemo(() => makeWindow(windowDays), [windowDays]);
-  const { merged, environments, isPending, isPartial, refresh } = useUsage(window);
+  const filters = useMemo((): UsageViewFilters | undefined => {
+    if (enabledProviders === null && enabledModels === null) return undefined;
+    return {
+      ...(enabledProviders === null ? {} : { providers: enabledProviders }),
+      ...(enabledModels === null ? {} : { models: enabledModels }),
+    };
+  }, [enabledModels, enabledProviders]);
+  const { merged, all, environments, isPending, isPartial, refresh } = useUsage(window, filters);
+
+  const visibleProviders = useMemo(
+    () =>
+      enabledProviders === null
+        ? PROVIDER_ORDER
+        : PROVIDER_ORDER.filter((provider) => enabledProviders.has(provider)),
+    [enabledProviders],
+  );
+
+  const availableModels = useMemo(() => {
+    if (enabledProviders === null) return all.models;
+    return all.models.filter((model) => enabledProviders.has(model.provider));
+  }, [all.models, enabledProviders]);
+
+  const toggleProvider = useCallback((provider: UsageProviderKind) => {
+    setEnabledProviders((current) => {
+      const next = new Set(current ?? PROVIDER_ORDER);
+      if (next.has(provider)) {
+        if (next.size === 1) return current;
+        next.delete(provider);
+      } else {
+        next.add(provider);
+      }
+      return next.size === PROVIDER_ORDER.length ? null : next;
+    });
+  }, []);
+
+  const toggleModel = useCallback(
+    (model: string) => {
+      setEnabledModels((current) => {
+        const catalog = availableModels.map((entry) => entry.model);
+        const next = new Set(current ?? catalog);
+        if (next.has(model)) {
+          if (next.size === 1) return current;
+          next.delete(model);
+        } else {
+          next.add(model);
+        }
+        return next.size === catalog.length ? null : next;
+      });
+    },
+    [availableModels],
+  );
 
   // Hold the content until every environment is terminal. Rendering merged
   // totals while devices are still answering makes every number on the page
@@ -163,7 +219,12 @@ export function UsagePage() {
                     {orderedProviders.map((provider) => {
                       const share = metric === "cost" ? provider.costShare : provider.tokenShare;
                       return (
-                        <div key={provider.provider} className="flex flex-col gap-1.5">
+                        <button
+                          key={provider.provider}
+                          type="button"
+                          onClick={() => toggleProvider(provider.provider)}
+                          className="flex cursor-pointer flex-col gap-1.5 text-left"
+                        >
                           <div className="flex items-baseline justify-between">
                             <span className="flex items-center gap-2 text-sm text-foreground">
                               <ProviderMark provider={provider.provider} className="size-4" />
@@ -189,7 +250,7 @@ export function UsagePage() {
                               ? `${formatPercent(share)} of cost · ${formatTokens(provider.totalTokens)} tokens`
                               : `${formatPercent(share)} of tokens · ${formatUsd(provider.costUsd)}`}
                           </span>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -199,7 +260,7 @@ export function UsagePage() {
                       <h2 className="text-sm font-medium text-foreground">
                         Daily {metric === "tokens" ? "processed tokens" : "cost"}
                       </h2>
-                      <div className="flex items-center gap-4">
+                      <div className="flex flex-wrap items-center gap-3">
                         <div className="flex overflow-hidden rounded-md border border-border">
                           {(["cost", "tokens"] as const).map((option) => (
                             <button
@@ -217,10 +278,25 @@ export function UsagePage() {
                             </button>
                           ))}
                         </div>
-                        <UsageChartLegend />
+                        <ModelFilter
+                          models={availableModels}
+                          selected={enabledModels}
+                          onToggle={toggleModel}
+                          onClear={() => setEnabledModels(null)}
+                        />
+                        <UsageChartLegend
+                          providers={PROVIDER_ORDER}
+                          selected={enabledProviders}
+                          onToggle={toggleProvider}
+                        />
                       </div>
                     </div>
-                    <UsageProviderChart days={days} daily={merged.daily} metric={metric} />
+                    <UsageProviderChart
+                      days={days}
+                      daily={merged.daily}
+                      metric={metric}
+                      providers={visibleProviders}
+                    />
                   </div>
                 </section>
 
@@ -299,7 +375,14 @@ export function UsagePage() {
                           merged.models.map((model) => (
                             <tr
                               key={`${model.provider}:${model.model}`}
-                              className="border-b border-border/50"
+                              className="cursor-pointer border-b border-border/50 hover:bg-muted/40"
+                              onClick={() =>
+                                setEnabledModels((current) =>
+                                  current !== null && current.size === 1 && current.has(model.model)
+                                    ? null
+                                    : new Set([model.model]),
+                                )
+                              }
                             >
                               <td className="py-2 text-foreground">
                                 <span className="flex items-center gap-2">
@@ -326,7 +409,7 @@ export function UsagePage() {
                       <thead>
                         <tr className="border-b border-border text-left text-xs text-muted-foreground">
                           <th className="py-2 font-normal">Day</th>
-                          {PROVIDER_ORDER.map((provider) => (
+                          {visibleProviders.map((provider) => (
                             <th key={provider} className="py-2 text-right font-normal">
                               {PROVIDER_LABEL[provider]}
                             </th>
@@ -338,7 +421,10 @@ export function UsagePage() {
                       <tbody>
                         {recentDays.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-6 text-center text-muted-foreground">
+                            <td
+                              colSpan={visibleProviders.length + 3}
+                              className="py-6 text-center text-muted-foreground"
+                            >
                               No activity in this window.
                             </td>
                           </tr>
@@ -346,7 +432,7 @@ export function UsagePage() {
                           recentDays.map((day) => (
                             <tr key={day.day} className="border-b border-border/50">
                               <td className="py-2 text-foreground">{formatDayShort(day.day)}</td>
-                              {PROVIDER_ORDER.map((provider) => (
+                              {visibleProviders.map((provider) => (
                                 <td
                                   key={provider}
                                   className="py-2 text-right text-muted-foreground tabular-nums"
@@ -373,6 +459,61 @@ export function UsagePage() {
         </ScrollArea>
       </div>
     </SidebarInset>
+  );
+}
+
+function ModelFilter({
+  models,
+  selected,
+  onToggle,
+  onClear,
+}: {
+  readonly models: readonly { readonly model: string; readonly provider: UsageProviderKind }[];
+  readonly selected: ReadonlySet<string> | null;
+  readonly onToggle: (model: string) => void;
+  readonly onClear: () => void;
+}) {
+  if (models.length === 0) return null;
+  const label =
+    selected === null
+      ? "All models"
+      : selected.size === 1
+        ? (models.find((entry) => selected.has(entry.model))?.model ?? "1 model")
+        : `${selected.size} models`;
+
+  return (
+    <Menu>
+      <MenuTrigger
+        className="flex cursor-pointer items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[10px] tracking-wide text-muted-foreground uppercase hover:text-foreground"
+        aria-label="Filter by model"
+      >
+        {label}
+        <ChevronDownIcon className="size-3" />
+      </MenuTrigger>
+      <MenuPopup align="end" className="min-w-56">
+        {selected !== null ? (
+          <button
+            type="button"
+            onClick={onClear}
+            className="mb-1 w-full cursor-pointer px-2 py-1 text-left text-xs text-muted-foreground hover:text-foreground"
+          >
+            Show all models
+          </button>
+        ) : null}
+        {models.map((entry) => (
+          <MenuCheckboxItem
+            key={`${entry.provider}:${entry.model}`}
+            checked={selected === null || selected.has(entry.model)}
+            onCheckedChange={() => onToggle(entry.model)}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <ProviderMark provider={entry.provider} className="size-3.5" />
+              <span className="truncate">{entry.model}</span>
+            </span>
+          </MenuCheckboxItem>
+        ))}
+      </MenuPopup>
+    </Menu>
   );
 }
 

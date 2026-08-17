@@ -255,4 +255,59 @@ describe("mergeUsage", () => {
     expect(merged.costUsd).toBe(0);
     expect(merged.daily).toHaveLength(0);
   });
+
+  it("filters by provider and renormalizes shares", () => {
+    const merged = mergeUsage(
+      [
+        environment(
+          "env-a",
+          summary(
+            [
+              bucket({ costUsd: 75 }),
+              bucket({ provider: "grok", model: "grok-4.6-build", costUsd: 25 }),
+            ],
+            [
+              { provider: "claude", hostId: "mac", homePath: "/a/.claude" },
+              { provider: "grok", hostId: "mac", homePath: "/a/.grok" },
+            ],
+          ),
+        ),
+      ],
+      USAGE_CONTRACT_VERSION,
+      { providers: new Set(["grok"]) },
+    );
+
+    expect(merged.costUsd).toBe(25);
+    expect(merged.providers).toHaveLength(1);
+    expect(merged.providers[0]?.provider).toBe("grok");
+    expect(merged.providers[0]?.costShare).toBe(1);
+    expect(merged.models.map((model) => model.model)).toEqual(["grok-4.6-build"]);
+  });
+
+  it("filters by model name across providers", () => {
+    const merged = mergeUsage(
+      [
+        environment(
+          "env-a",
+          summary(
+            [
+              bucket({ model: "claude-fable-5", costUsd: 10 }),
+              bucket({ model: "claude-opus-5", costUsd: 40 }),
+              bucket({ provider: "grok", model: "grok-4.6-build", costUsd: 5 }),
+            ],
+            [
+              { provider: "claude", hostId: "mac", homePath: "/a/.claude" },
+              { provider: "grok", hostId: "mac", homePath: "/a/.grok" },
+            ],
+          ),
+        ),
+      ],
+      USAGE_CONTRACT_VERSION,
+      { models: new Set(["claude-opus-5"]) },
+    );
+
+    expect(merged.costUsd).toBe(40);
+    expect(merged.models).toHaveLength(1);
+    expect(merged.models[0]?.model).toBe("claude-opus-5");
+  });
 });
