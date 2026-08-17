@@ -63,6 +63,7 @@ export const ProviderSessionStartInput = Schema.Struct({
   providerInstanceId: Schema.optional(ProviderInstanceId),
   cwd: Schema.optional(TrimmedNonEmptyString),
   additionalDirectories: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   resumeCursor: Schema.optional(Schema.Unknown),
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),

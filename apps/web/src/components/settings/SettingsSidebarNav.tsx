@@ -10,6 +10,7 @@ import {
 import {
   ArchiveIcon,
   ArrowLeftIcon,
+  BlocksIcon,
   BotIcon,
   GitBranchIcon,
   KeyboardIcon,
@@ -50,6 +51,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/appearance": PaletteIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/providers": BotIcon,
+  "/settings/integrations": BlocksIcon,
   "/settings/source-control": GitBranchIcon,
   "/settings/mcp-servers": PlugIcon,
   "/settings/connections": Link2Icon,
@@ -222,9 +224,9 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
             {isSearching ? (
               <Button
                 type="button"
-                size="icon-xs"
+                size="icon-micro"
                 variant="ghost"
-                className="size-5 shrink-0 rounded-sm text-sidebar-muted-foreground hover:bg-sidebar-control-surface hover:text-sidebar-foreground"
+                className="shrink-0 text-sidebar-muted-foreground hover:bg-sidebar-control-surface hover:text-sidebar-foreground"
                 aria-label="Clear settings search"
                 onClick={() => {
                   clearSearch();
