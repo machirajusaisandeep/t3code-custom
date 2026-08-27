@@ -53,10 +53,13 @@ import Migration0037 from "./Migrations/037_ProjectionTurnsKeysetIndex.ts";
 import Migration0038 from "./Migrations/038_ProjectionThreadsPinOrderKey.ts";
 import Migration0039 from "./Migrations/039_ProjectionProjectsDefaultThreadEnvMode.ts";
 import Migration0040 from "./Migrations/040_ProjectionProjectFaviconPath.ts";
-import Migration0041 from "./Migrations/041_ProjectionProjectsAdditionalFolders.ts";
-import Migration0042 from "./Migrations/042_ProjectionThreadSessionFailureKind.ts";
-import Migration0043 from "./Migrations/043_ProjectionTurnsSourceProposedPlanKind.ts";
-import Migration0044 from "./Migrations/044_RepairProjectionThreadsPinOrderKey.ts";
+import Migration0041 from "./Migrations/041_AuthSessionClientConnection.ts";
+import Migration0042 from "./Migrations/042_ProjectionThreadLinkedPullRequest.ts";
+import Migration0043 from "./Migrations/043_ProjectionThreadsUnsettledAt.ts";
+import Migration0044 from "./Migrations/044_ProjectionProjectsAdditionalFolders.ts";
+import Migration0045 from "./Migrations/045_ProjectionThreadSessionFailureKind.ts";
+import Migration0046 from "./Migrations/046_ProjectionTurnsSourceProposedPlanKind.ts";
+import Migration0047 from "./Migrations/047_RepairProjectionThreadsPinOrderKey.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -109,10 +112,13 @@ export const migrationEntries = [
   [38, "ProjectionThreadsPinOrderKey", Migration0038],
   [39, "ProjectionProjectsDefaultThreadEnvMode", Migration0039],
   [40, "ProjectionProjectFaviconPath", Migration0040],
-  [41, "ProjectionProjectsAdditionalFolders", Migration0041],
-  [42, "ProjectionThreadSessionFailureKind", Migration0042],
-  [43, "ProjectionTurnsSourceProposedPlanKind", Migration0043],
-  [44, "RepairProjectionThreadsPinOrderKey", Migration0044],
+  [41, "AuthSessionClientConnection", Migration0041],
+  [42, "ProjectionThreadLinkedPullRequest", Migration0042],
+  [43, "ProjectionThreadsUnsettledAt", Migration0043],
+  [44, "ProjectionProjectsAdditionalFolders", Migration0044],
+  [45, "ProjectionThreadSessionFailureKind", Migration0045],
+  [46, "ProjectionTurnsSourceProposedPlanKind", Migration0046],
+  [47, "RepairProjectionThreadsPinOrderKey", Migration0047],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

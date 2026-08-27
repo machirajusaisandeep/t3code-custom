@@ -1,6 +1,7 @@
 import {
   canSettle,
   canSnooze,
+  type ChangeRequestSettleSource,
   effectiveSettled,
   effectiveSnoozed,
 } from "@t3tools/client-runtime/state/thread-settled";
@@ -60,6 +61,14 @@ export interface BoardPartitionContext {
   readonly lastVisitedAtFor: (thread: SidebarThreadSummary) => string | undefined;
 }
 
+/** Board cards stream in only the bare PR state, not `updatedAt`; omitting
+    it keeps `effectiveSettled`'s always-settle-on-unknown-timestamp default. */
+function toChangeRequestSettleSource(
+  state: "open" | "closed" | "merged" | null,
+): ChangeRequestSettleSource | null {
+  return state === null ? null : { state };
+}
+
 /**
  * Mirrors the sidebar's partition (SidebarV2) exactly, so the two surfaces
  * can never disagree about where a thread belongs: snooze outranks a pin, a
@@ -86,7 +95,7 @@ export function resolveBoardColumn(
     effectiveSettled(thread, {
       now: context.now,
       autoSettleAfterDays: context.autoSettleAfterDays,
-      changeRequestState: context.changeRequestStateFor(thread),
+      changeRequest: toChangeRequestSettleSource(context.changeRequestStateFor(thread)),
     })
   ) {
     return "done";

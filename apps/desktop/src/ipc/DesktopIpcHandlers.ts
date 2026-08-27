@@ -39,6 +39,7 @@ import {
   openExternal,
   probeRemoteEditors,
   pickFolder,
+  pickProjectFavicon,
   pickThemeFiles,
   setChromeBackgroundColor,
   setTheme,
@@ -83,6 +84,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(setWslOnly);
 
   yield* ipc.handle(pickFolder);
+  yield* ipc.handle(pickProjectFavicon);
   yield* ipc.handle(pickThemeFiles);
   yield* ipc.handle(setTheme);
   yield* ipc.handle(setChromeBackgroundColor);

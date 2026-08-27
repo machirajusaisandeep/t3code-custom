@@ -44,6 +44,7 @@ export interface ProviderTotals {
   readonly costUsd: number;
   readonly totalTokens: number;
   readonly records: number;
+  readonly sessions: number;
   readonly costShare: number;
   readonly tokenShare: number;
 }
@@ -164,12 +165,13 @@ function ownedContribution(
     if (source.status === "missing") continue;
     const key = fingerprintKey(source.fingerprint);
     if (ownerByFingerprint.get(key) === environment.environmentId) {
-      ownedProviders.add(source.fingerprint.provider);
+      const provider = source.fingerprint.provider;
+      ownedProviders.add(provider);
       // Distinct within a directory. Summing per-bucket session counts instead
       // would count a session once per day and model it spans.
       sessionsByProvider.set(
-        source.fingerprint.provider,
-        (sessionsByProvider.get(source.fingerprint.provider) ?? 0) + source.distinctSessions,
+        provider,
+        (sessionsByProvider.get(provider) ?? 0) + source.distinctSessions,
       );
     }
   }
@@ -254,7 +256,7 @@ export function mergeUsage(
 
   const providerAccumulator = new Map<
     UsageProviderKind,
-    { costUsd: number; totalTokens: number; records: number }
+    { costUsd: number; totalTokens: number; records: number; sessions: number }
   >();
   const modelAccumulator = new Map<
     string,
@@ -283,11 +285,21 @@ export function mergeUsage(
   for (const environment of current) {
     const { buckets, sessionsByProvider } = ownedContribution(environment, ownerByFingerprint);
     if (buckets.length > 0) contributingEnvironments.push(environment.environmentId);
-    for (const [provider, count] of sessionsByProvider) {
+
+    for (const [providerKind, providerSessions] of sessionsByProvider) {
       if (filters?.providers !== undefined && filters.providers.size > 0) {
-        if (!filters.providers.has(provider)) continue;
+        if (!filters.providers.has(providerKind)) continue;
       }
-      sessions += count;
+      sessions += providerSessions;
+      if (providerSessions === 0) continue;
+      const provider = providerAccumulator.get(providerKind) ?? {
+        costUsd: 0,
+        totalTokens: 0,
+        records: 0,
+        sessions: 0,
+      };
+      provider.sessions += providerSessions;
+      providerAccumulator.set(providerKind, provider);
     }
 
     for (const bucket of buckets) {
@@ -309,6 +321,7 @@ export function mergeUsage(
         costUsd: 0,
         totalTokens: 0,
         records: 0,
+        sessions: 0,
       };
       provider.costUsd += bucket.costUsd;
       provider.totalTokens += tokens;
@@ -370,6 +383,7 @@ export function mergeUsage(
       costUsd: totals.costUsd,
       totalTokens: totals.totalTokens,
       records: totals.records,
+      sessions: totals.sessions,
       costShare: costUsd === 0 ? 0 : totals.costUsd / costUsd,
       tokenShare: totalTokens === 0 ? 0 : totals.totalTokens / totalTokens,
     }))
